@@ -69,13 +69,11 @@ async fn setup_db_storage(container: &ContainerAsync<PostgresImage>) -> Arc<Data
         "postgres", "postgres", port, DB_NAME
     );
 
-    let storage = Arc::new(
+    Arc::new(
         DatabaseStorage::new(&database_url)
             .await
             .expect("Failed to create DatabaseStorage"),
-    );
-
-    storage
+    )
 }
 
 async fn get_run_tasks<S: Storage + ?Sized>(storage: &Arc<S>) -> usize {

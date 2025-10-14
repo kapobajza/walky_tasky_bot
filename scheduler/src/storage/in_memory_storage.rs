@@ -18,6 +18,12 @@ impl InMemoryStorage {
     }
 }
 
+impl Default for InMemoryStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl Storage for InMemoryStorage {
     async fn save_task(&self, task: Task) -> Result<(), crate::error::SchedulerError> {

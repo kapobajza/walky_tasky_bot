@@ -66,10 +66,10 @@ impl Default for Task {
 impl Task {
     pub fn new_with_cron(name: &str, cron_expression: &str) -> Result<Self, SchedulerError> {
         let next_run = cron::Schedule::from_str(cron_expression)
-            .map_err(|error| SchedulerError::CronError(error))?
+            .map_err(SchedulerError::CronError)?
             .upcoming(Utc)
             .next()
-            .ok_or_else(|| SchedulerError::NoChronoNext)?;
+            .ok_or(SchedulerError::NoChronoNext)?;
 
         Ok(Task {
             schedule: TaskType::Cron(cron_expression.to_string()),
@@ -102,11 +102,11 @@ impl Task {
         match &self.schedule {
             TaskType::Cron(cron_expression) => {
                 let schedule = cron::Schedule::from_str(cron_expression)
-                    .map_err(|error| SchedulerError::CronError(error))?;
+                    .map_err(SchedulerError::CronError)?;
                 let next_run = schedule
                     .upcoming(Utc)
                     .next()
-                    .ok_or_else(|| SchedulerError::NoChronoNext)?;
+                    .ok_or(SchedulerError::NoChronoNext)?;
                 self.next_run = next_run;
                 Ok(())
             }

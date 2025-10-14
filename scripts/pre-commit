@@ -1,0 +1,26 @@
+#!/bin/sh
+
+# Run cargo fmt check
+echo "Running cargo fmt..."
+cargo fmt --all -- --check
+if [ $? -ne 0 ]; then
+    echo "❌ Code formatting issues detected. Run 'cargo fmt' to fix them."
+    exit 1
+fi
+
+# Run clippy
+echo "Running cargo clippy..."
+cargo clippy --all-targets --all-features --fix --allow-dirty -- -D warnings
+if [ $? -ne 0 ]; then
+    echo "❌ Clippy found issues. Please fix them before committing."
+    exit 1
+fi
+
+# If there are any changes after clippy fix, add them to the commit
+if [ -n "$(git status --porcelain)" ]; then
+    echo "⚠️  Code was modified by clippy fix. Adding changes to the commit."
+    git add .
+fi
+
+echo "✅ All checks passed!"
+exit 0
