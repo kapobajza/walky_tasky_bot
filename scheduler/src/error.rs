@@ -13,4 +13,13 @@ pub enum SchedulerError {
 
     #[error("Scheduler is not running")]
     NotRunning,
+
+    #[error("Database error: {0}")]
+    DatabaseError(String),
+
+    #[error("Task execution error: {0}")]
+    TaskExecutionError(String),
+
+    #[error("Migration error: {0}")]
+    MigrationError(String),
 }

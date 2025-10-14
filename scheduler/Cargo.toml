@@ -11,3 +11,8 @@ serde = "1.0.228"
 thiserror = "2.0.17"
 tokio = { version = "1.47.1", features = ["sync", "rt", "time", "macros"] }
 uuid = { version = "1.18.1", features = ["v4"] }
+sqlx = { workspace = true }
+
+[dev-dependencies]
+testcontainers = "0.25.0"
+testcontainers-modules = { version = "0.13.0", features = ["postgres"] }

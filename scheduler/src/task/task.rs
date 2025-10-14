@@ -1,24 +1,70 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{str::FromStr, time::Duration};
 
 use chrono::{DateTime, Utc};
+use sqlx::types::time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::error::SchedulerError;
 
 #[derive(Clone, Debug)]
+pub enum TaskType {
+    Cron(String),
+    Once,
+}
+
+impl From<TaskType> for i16 {
+    fn from(value: TaskType) -> Self {
+        match value {
+            TaskType::Cron(_) => 1,
+            TaskType::Once => 2,
+        }
+    }
+}
+
+pub struct TaskDb {
+    pub id: Uuid,
+    pub schedule_type: i16,
+    pub schedule: Option<String>,
+    pub last_run: Option<OffsetDateTime>,
+    pub next_run: OffsetDateTime,
+    pub retry_count: i32,
+    pub max_retries: i32,
+    pub retry_delay: i32,
+    pub name: String,
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug)]
 pub struct Task {
     pub id: Uuid,
-    pub cron_expression: Option<String>,
+    pub name: String,
     pub next_run: DateTime<Utc>,
     pub last_run: Option<DateTime<Utc>>,
     pub enabled: bool,
-    pub metadata: HashMap<String, String>,
-    once: bool,
+    pub retry_count: u32,
+    pub max_retries: u32,
+    pub retry_delay: Duration,
+    pub schedule: TaskType,
+}
+
+impl Default for Task {
+    fn default() -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            next_run: Utc::now(),
+            last_run: None,
+            enabled: true,
+            retry_count: 0,
+            max_retries: 3,
+            retry_delay: Duration::from_millis(1000),
+            schedule: TaskType::Once,
+            name: "Unnamed Task".into(),
+        }
+    }
 }
 
 impl Task {
-    pub fn new_with_cron(cron_expression: &str) -> Result<Self, SchedulerError> {
-        let id = uuid::Uuid::new_v4();
+    pub fn new_with_cron(name: &str, cron_expression: &str) -> Result<Self, SchedulerError> {
         let next_run = cron::Schedule::from_str(cron_expression)
             .map_err(|error| SchedulerError::CronError(error))?
             .upcoming(Utc)
@@ -26,43 +72,123 @@ impl Task {
             .ok_or_else(|| SchedulerError::NoChronoNext)?;
 
         Ok(Task {
-            id,
-            cron_expression: Some(cron_expression.to_string()),
+            schedule: TaskType::Cron(cron_expression.to_string()),
             next_run,
-            last_run: None,
-            enabled: true,
-            metadata: HashMap::new(),
-            once: false,
+            name: name.to_string(),
+            ..Default::default()
         })
     }
 
-    pub fn new_with_datetime(next_run: DateTime<Utc>) -> Self {
-        let id = uuid::Uuid::new_v4();
+    pub fn new_with_datetime(name: &str, next_run: DateTime<Utc>) -> Self {
         Task {
-            id,
-            cron_expression: None,
+            schedule: TaskType::Once,
             next_run,
-            last_run: None,
-            enabled: true,
-            metadata: HashMap::new(),
-            once: true,
+            name: name.to_string(),
+            ..Default::default()
         }
     }
 
+    pub fn with_max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = max_retries;
+        self
+    }
+
+    pub fn with_retry_delay(mut self, retry_delay: Duration) -> Self {
+        self.retry_delay = retry_delay;
+        self
+    }
+
     pub fn calculate_next_run(&mut self) -> Result<(), SchedulerError> {
-        if let Some(cron_expr) = &self.cron_expression {
-            let schedule = cron::Schedule::from_str(cron_expr)
-                .map_err(|error| SchedulerError::CronError(error))?;
-            self.next_run = schedule
-                .upcoming(Utc)
-                .next()
-                .ok_or_else(|| SchedulerError::NoChronoNext)?;
+        match &self.schedule {
+            TaskType::Cron(cron_expression) => {
+                let schedule = cron::Schedule::from_str(cron_expression)
+                    .map_err(|error| SchedulerError::CronError(error))?;
+                let next_run = schedule
+                    .upcoming(Utc)
+                    .next()
+                    .ok_or_else(|| SchedulerError::NoChronoNext)?;
+                self.next_run = next_run;
+                Ok(())
+            }
+            TaskType::Once => {
+                self.enabled = false;
+                Ok(())
+            }
         }
+    }
 
-        if self.once {
-            self.enabled = false;
-        }
+    pub fn calcluate_retry_delay(&self) -> Duration {
+        let multiplier = 2_u64.pow(self.retry_count);
+        Duration::from_millis(self.retry_delay.as_millis() as u64 * multiplier)
+    }
 
-        Ok(())
+    pub fn should_retry(&self) -> bool {
+        self.retry_count < self.max_retries
+    }
+
+    pub fn reset_retry_count(&mut self) {
+        self.retry_count = 0;
+    }
+
+    pub fn to_db_task(&self) -> Result<TaskDb, SchedulerError> {
+        let schedule = i16::from(self.schedule.clone());
+        let retry_delay = self.retry_delay.as_millis() as i32;
+        let max_retries = self.max_retries as i32;
+        let retry_count = self.retry_count as i32;
+        let next_run = OffsetDateTime::from_unix_timestamp(self.next_run.timestamp())
+            .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
+        let last_run = self
+            .last_run
+            .map(|dt| OffsetDateTime::from_unix_timestamp(dt.timestamp()))
+            .transpose()
+            .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
+
+        Ok(TaskDb {
+            id: self.id,
+            schedule_type: schedule,
+            last_run,
+            next_run,
+            retry_count,
+            max_retries,
+            retry_delay,
+            schedule: match &self.schedule {
+                TaskType::Cron(expr) => Some(expr.clone()),
+                TaskType::Once => None,
+            },
+            name: self.name.clone(),
+            enabled: self.enabled,
+        })
+    }
+
+    pub fn from_db_task(db_task: TaskDb) -> Result<Self, SchedulerError> {
+        let schedule = match db_task.schedule_type {
+            1 => TaskType::Cron(db_task.schedule.unwrap()), // Placeholder, actual cron expression should be stored/retrieved
+            2 => TaskType::Once,
+            _ => {
+                return Err(SchedulerError::DatabaseError(
+                    "Invalid schedule type".to_string(),
+                ));
+            }
+        };
+        let retry_delay = Duration::from_millis(db_task.retry_delay as u64);
+        let max_retries = db_task.max_retries as u32;
+        let retry_count = db_task.retry_count as u32;
+        let next_run =
+            DateTime::<Utc>::from_timestamp_nanos(db_task.next_run.unix_timestamp_nanos() as i64);
+        let last_run = db_task
+            .last_run
+            .map(|dt| DateTime::<Utc>::from_timestamp_nanos(dt.unix_timestamp_nanos() as i64));
+
+        Ok(Task {
+            id: db_task.id,
+            schedule,
+            next_run,
+            last_run,
+            enabled: db_task.enabled,
+            retry_count,
+            max_retries,
+            retry_delay,
+            name: db_task.name,
+        })
     }
 }

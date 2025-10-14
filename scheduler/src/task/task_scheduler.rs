@@ -31,13 +31,11 @@ impl TaskScheduler {
         self
     }
 
-    pub async fn add_task_with_cron(
+    pub async fn add_task(
         &self,
-        cron_expression: &str,
+        task: Task,
         handler: Arc<dyn TaskHandler>,
     ) -> Result<Uuid, SchedulerError> {
-        let task = Task::new_with_cron(cron_expression)?;
-
         self.storage.save_task(task.clone()).await?;
 
         let mut handlers = self.handlers.write().await;
@@ -46,20 +44,57 @@ impl TaskScheduler {
         Ok(task.id)
     }
 
-    pub async fn add_task_with_datetime(
-        &self,
-        next_run: chrono::DateTime<chrono::Utc>,
+    async fn execute_task_with_retry(
         handler: Arc<dyn TaskHandler>,
-    ) -> Result<Uuid, SchedulerError> {
-        let task = Task::new_with_datetime(next_run);
+        mut task: Task,
+        storage: Arc<dyn Storage>,
+    ) {
+        loop {
+            match handler.execute(&task).await {
+                Ok(_) => {
+                    println!("Task {} executed successfully", task.id);
+                    task.reset_retry_count();
+                    task.last_run = Some(chrono::Utc::now());
 
-        self.storage.save_task(task.clone()).await?;
+                    if let Err(e) = task.calculate_next_run() {
+                        eprintln!("Error calculating next run for task {}: {:?}", task.id, e);
+                        return;
+                    }
 
-        let mut handlers = self.handlers.write().await;
-        handlers.insert(task.id, handler);
-        println!("Added task with ID: {}", task.id);
+                    if let Err(e) = storage.save_task(task).await {
+                        eprintln!("Error updating task {:?}", e);
+                    }
+                    return;
+                }
+                Err(e) => {
+                    task.retry_count += 1;
+                    eprintln!(
+                        "Error executing task {}: {:?}. Retry count: {}",
+                        task.id, e, task.retry_count
+                    );
 
-        Ok(task.id)
+                    if task.should_retry() {
+                        let retry_delay = task.calcluate_retry_delay();
+                        tokio::time::sleep(retry_delay).await;
+                        continue;
+                    } else {
+                        eprintln!("Max retries reached for task {}. Giving up.", task.id);
+                        task.last_run = Some(chrono::Utc::now());
+
+                        if let Err(e) = task.calculate_next_run() {
+                            eprintln!("Error calculating next run for task {}: {:?}", task.id, e);
+                        } else {
+                            task.reset_retry_count();
+                        }
+
+                        if let Err(e) = storage.save_task(task).await {
+                            eprintln!("Error updating task {:?}", e);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     pub async fn start(&self) -> Result<(), SchedulerError> {
@@ -91,44 +126,17 @@ impl TaskScheduler {
 
                 match storage.get_ready_tasks().await {
                     Ok(ready_tasks) => {
-                        for mut task in ready_tasks {
+                        for task in ready_tasks {
                             let handlers_guard = handlers.read().await;
-                            println!("Running task: {}", task.id);
 
                             if let Some(handler) = handlers_guard.get(&task.id) {
                                 let handler = Arc::clone(handler);
-                                let task_clone = task.clone();
+                                let storage_clone = Arc::clone(&storage);
 
                                 tokio::spawn(async move {
-                                    match handler.execute(&task_clone).await {
-                                        Ok(_) => {
-                                            println!(
-                                                "Task {} executed successfully",
-                                                task_clone.id
-                                            );
-                                        }
-                                        Err(e) => {
-                                            eprintln!(
-                                                "Error executing task {}: {:?}",
-                                                task_clone.id, e
-                                            );
-                                        }
-                                    }
+                                    Self::execute_task_with_retry(handler, task, storage_clone)
+                                        .await;
                                 });
-
-                                task.last_run = Some(chrono::Utc::now());
-
-                                if let Err(e) = task.calculate_next_run() {
-                                    eprintln!(
-                                        "Error calculating next run for task {}: {:?}",
-                                        task.id, e
-                                    );
-                                    continue;
-                                }
-
-                                if let Err(e) = storage.save_task(task).await {
-                                    eprintln!("Error updating task {:?}", e);
-                                }
                             } else {
                                 eprintln!("No handler registered for task {}", task.id);
                             }
