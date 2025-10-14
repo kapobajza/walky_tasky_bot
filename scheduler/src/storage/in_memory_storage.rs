@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::{storage::base_storage::Storage, task::task::Task};
+use crate::{storage::base_storage::Storage, task::default::Task};
 
 pub struct InMemoryStorage {
     tasks: RwLock<HashMap<Uuid, Task>>,

@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::{
     error::SchedulerError,
     storage::base_storage::Storage,
-    task::{task::Task, task_handler::TaskHandler},
+    task::{default::Task, task_handler::TaskHandler},
 };
 
 pub struct TaskScheduler {

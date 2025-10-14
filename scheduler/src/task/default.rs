@@ -101,8 +101,8 @@ impl Task {
     pub fn calculate_next_run(&mut self) -> Result<(), SchedulerError> {
         match &self.schedule {
             TaskType::Cron(cron_expression) => {
-                let schedule = cron::Schedule::from_str(cron_expression)
-                    .map_err(SchedulerError::CronError)?;
+                let schedule =
+                    cron::Schedule::from_str(cron_expression).map_err(SchedulerError::CronError)?;
                 let next_run = schedule
                     .upcoming(Utc)
                     .next()

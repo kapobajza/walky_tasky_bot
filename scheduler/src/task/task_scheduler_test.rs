@@ -10,7 +10,7 @@ use crate::{
         in_memory_storage::InMemoryStorage,
     },
     task::{
-        task::{Task, TaskType},
+        default::{Task, TaskType},
         task_handler::{AsyncTaskHandler, SimpleTaskHandler},
         task_scheduler::TaskScheduler,
     },

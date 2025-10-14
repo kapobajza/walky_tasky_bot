@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use crate::{
     error::SchedulerError,
     storage::base_storage::Storage,
-    task::task::{Task, TaskDb},
+    task::default::{Task, TaskDb},
 };
 
 pub struct DatabaseStorage {

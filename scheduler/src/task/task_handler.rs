@@ -1,4 +1,4 @@
-use crate::{error::SchedulerError, task::task::Task};
+use crate::{error::SchedulerError, task::default::Task};
 
 #[async_trait::async_trait]
 pub trait TaskHandler: Send + Sync {
