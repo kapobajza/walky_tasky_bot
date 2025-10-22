@@ -96,7 +96,7 @@ async fn test_add_and_execute_task() {
 
     scheduler
         .add_task(
-            Task::new_with_datetime("test_add_execute", next_run),
+            Task::new_with_datetime(next_run),
             Arc::new(SimpleTaskHandler::new(|task| {
                 println!("Task executed: {:?}", task);
                 Ok(())
@@ -129,7 +129,7 @@ async fn test_retry_task_on_failure() {
 
     scheduler
         .add_task(
-            Task::new_with_datetime("test_retry_on_failure", next_run)
+            Task::new_with_datetime(next_run)
                 .with_max_retries(3)
                 .with_retry_delay(Duration::from_millis(10)),
             Arc::new(AsyncTaskHandler::new(move |_| {
@@ -176,9 +176,13 @@ async fn test_execute_unfinished_tasks_on_startup() {
         TaskScheduler::new(storage.clone()).with_check_interval(time::Duration::from_millis(50));
     let now = chrono::Utc::now();
     let next_run = now - chrono::Duration::days(1);
+    let mut task_to_save = Task::new_with_datetime(next_run);
+    let task_id = storage.save_task(task_to_save.clone()).await.unwrap();
+    task_to_save.id = task_id;
+
     scheduler
         .add_task(
-            Task::new_with_datetime("test_execute_unfinished_tasks_on_startup", next_run),
+            task_to_save,
             Arc::new(SimpleTaskHandler::new(|task| {
                 println!("Task executed on startup: {:?}", task);
                 Ok(())
@@ -206,12 +210,9 @@ async fn test_do_not_execute_disabled_tasks() {
         TaskScheduler::new(storage.clone()).with_check_interval(time::Duration::from_millis(50));
     let now = chrono::Utc::now();
 
-    let task_name = "test_do_not_execute_disabled_tasks";
-
     storage
         .save_task(Task {
             id: uuid::Uuid::new_v4(),
-            name: task_name.to_string(),
             schedule: TaskType::Once,
             next_run: now - chrono::Duration::days(1),
             last_run: None,

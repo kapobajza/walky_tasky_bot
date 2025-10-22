@@ -26,10 +26,10 @@ impl Default for InMemoryStorage {
 
 #[async_trait]
 impl Storage for InMemoryStorage {
-    async fn save_task(&self, task: Task) -> Result<(), crate::error::SchedulerError> {
+    async fn save_task(&self, task: Task) -> Result<Uuid, crate::error::SchedulerError> {
         let mut tasks = self.tasks.write().await;
-        tasks.insert(task.id, task);
-        Ok(())
+        tasks.insert(task.id, task.clone());
+        Ok(task.id)
     }
 
     async fn get_task(&self, id: uuid::Uuid) -> Result<Option<Task>, crate::error::SchedulerError> {

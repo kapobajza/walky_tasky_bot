@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use uuid::Uuid;
 
 use crate::{
     error::SchedulerError,
@@ -21,38 +22,38 @@ impl DatabaseStorage {
 
 #[async_trait]
 impl Storage for DatabaseStorage {
-    async fn save_task(&self, task: Task) -> Result<(), crate::error::SchedulerError> {
+    async fn save_task(&self, task: Task) -> Result<Uuid, crate::error::SchedulerError> {
         let db_task = Task::to_db_task(&task)?;
 
-        sqlx::query!(
-            "INSERT INTO tasks (id, name, schedule_type, last_run, next_run, retry_count, max_retries, retry_delay)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ON CONFLICT (name) DO UPDATE SET
+        let task_id = sqlx::query_scalar!(
+            "INSERT INTO tasks (id, schedule_type, last_run, next_run, retry_count, max_retries, retry_delay)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (id) DO UPDATE SET
                 schedule_type = EXCLUDED.schedule_type,
                 last_run = EXCLUDED.last_run,
                 next_run = EXCLUDED.next_run,
                 retry_count = EXCLUDED.retry_count,
                 max_retries = EXCLUDED.max_retries,
-                retry_delay = EXCLUDED.retry_delay",
+                retry_delay = EXCLUDED.retry_delay
+            RETURNING id",
             db_task.id,
-            db_task.name,
             db_task.schedule_type,
             db_task.last_run,
             db_task.next_run,
             db_task.retry_count,
             db_task.max_retries,
             db_task.retry_delay,
-        ).execute(&self.pool)
+        ).fetch_one(&self.pool)
             .await
             .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
 
-        Ok(())
+        Ok(task_id)
     }
 
     async fn get_task(&self, id: uuid::Uuid) -> Result<Option<Task>, crate::error::SchedulerError> {
         let record = sqlx::query_as!(
             TaskDb,
-            "SELECT id, name, schedule_type as \"schedule_type: i16\", last_run, next_run, retry_count, max_retries, retry_delay, schedule, enabled
+            "SELECT id, schedule_type as \"schedule_type: i16\", last_run, next_run, retry_count, max_retries, retry_delay, schedule, enabled
             FROM tasks WHERE id = $1",
             id
         ).fetch_optional(&self.pool)
@@ -65,7 +66,7 @@ impl Storage for DatabaseStorage {
     async fn get_all_tasks(&self) -> Result<Vec<Task>, crate::error::SchedulerError> {
         let records = sqlx::query_as!(
             TaskDb,
-            "SELECT id, name, schedule_type as \"schedule_type: i16\", last_run, next_run, retry_count, max_retries, retry_delay, schedule, enabled
+            "SELECT id, schedule_type as \"schedule_type: i16\", last_run, next_run, retry_count, max_retries, retry_delay, schedule, enabled
             FROM tasks"
         ).fetch_all(&self.pool)
             .await
@@ -87,7 +88,7 @@ impl Storage for DatabaseStorage {
     async fn get_ready_tasks(&self) -> Result<Vec<Task>, crate::error::SchedulerError> {
         let records = sqlx::query_as!(
             TaskDb,
-            "SELECT id, name, schedule_type as \"schedule_type: i16\", last_run, next_run, retry_count, max_retries, retry_delay, schedule, enabled
+            "SELECT id, schedule_type as \"schedule_type: i16\", last_run, next_run, retry_count, max_retries, retry_delay, schedule, enabled
             FROM tasks WHERE next_run <= NOW() AND enabled = TRUE",
         ).fetch_all(&self.pool)
             .await

@@ -30,14 +30,12 @@ pub struct TaskDb {
     pub retry_count: i32,
     pub max_retries: i32,
     pub retry_delay: i32,
-    pub name: String,
     pub enabled: bool,
 }
 
 #[derive(Clone, Debug)]
 pub struct Task {
     pub id: Uuid,
-    pub name: String,
     pub next_run: DateTime<Utc>,
     pub last_run: Option<DateTime<Utc>>,
     pub enabled: bool,
@@ -58,13 +56,12 @@ impl Default for Task {
             max_retries: 3,
             retry_delay: Duration::from_millis(1000),
             schedule: TaskType::Once,
-            name: "Unnamed Task".into(),
         }
     }
 }
 
 impl Task {
-    pub fn new_with_cron(name: &str, cron_expression: &str) -> Result<Self, SchedulerError> {
+    pub fn new_with_cron(cron_expression: &str) -> Result<Self, SchedulerError> {
         let next_run = cron::Schedule::from_str(cron_expression)
             .map_err(SchedulerError::CronError)?
             .upcoming(Utc)
@@ -74,16 +71,14 @@ impl Task {
         Ok(Task {
             schedule: TaskType::Cron(cron_expression.to_string()),
             next_run,
-            name: name.to_string(),
             ..Default::default()
         })
     }
 
-    pub fn new_with_datetime(name: &str, next_run: DateTime<Utc>) -> Self {
+    pub fn new_with_datetime(next_run: DateTime<Utc>) -> Self {
         Task {
             schedule: TaskType::Once,
             next_run,
-            name: name.to_string(),
             ..Default::default()
         }
     }
@@ -155,7 +150,6 @@ impl Task {
                 TaskType::Cron(expr) => Some(expr.clone()),
                 TaskType::Once => None,
             },
-            name: self.name.clone(),
             enabled: self.enabled,
         })
     }
@@ -188,7 +182,6 @@ impl Task {
             retry_count,
             max_retries,
             retry_delay,
-            name: db_task.name,
         })
     }
 }

@@ -2,7 +2,6 @@
 
 CREATE TABLE IF NOT EXISTS tasks (
     id UUID NOT NULL DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL,
     schedule_type SMALLINT NOT NULL,
     schedule TEXT,
     last_run TIMESTAMPTZ,
@@ -12,8 +11,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     retry_delay INT NOT NULL DEFAULT 1000, -- in milliseconds
     max_retries INT NOT NULL DEFAULT 3,
 
-    CONSTRAINT pk_tasks PRIMARY KEY (id),
-    CONSTRAINT uq_task_name UNIQUE (name)
+    CONSTRAINT pk_tasks PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS users (

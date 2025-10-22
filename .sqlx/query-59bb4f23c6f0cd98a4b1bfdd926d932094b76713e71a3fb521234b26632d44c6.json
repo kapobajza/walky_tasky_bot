@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, schedule_type as \"schedule_type: i16\", last_run, next_run, retry_count, max_retries, retry_delay, schedule, enabled\n            FROM tasks WHERE next_run <= NOW() AND enabled = TRUE",
+  "query": "SELECT id, schedule_type as \"schedule_type: i16\", last_run, next_run, retry_count, max_retries, retry_delay, schedule, enabled\n            FROM tasks WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -10,55 +10,51 @@
       },
       {
         "ordinal": 1,
-        "name": "name",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 2,
         "name": "schedule_type: i16",
         "type_info": "Int2"
       },
       {
-        "ordinal": 3,
+        "ordinal": 2,
         "name": "last_run",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "next_run",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "retry_count",
         "type_info": "Int4"
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "max_retries",
         "type_info": "Int4"
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "retry_delay",
         "type_info": "Int4"
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "schedule",
         "type_info": "Text"
       },
       {
-        "ordinal": 9,
+        "ordinal": 8,
         "name": "enabled",
         "type_info": "Bool"
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Uuid"
+      ]
     },
     "nullable": [
-      false,
       false,
       false,
       true,
@@ -70,5 +66,5 @@
       false
     ]
   },
-  "hash": "b49e307d69fc03238db8c7b9a4d5964b9256841711f5bf429ef279fa0942f381"
+  "hash": "59bb4f23c6f0cd98a4b1bfdd926d932094b76713e71a3fb521234b26632d44c6"
 }
