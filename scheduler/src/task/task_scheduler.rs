@@ -52,25 +52,27 @@ impl TaskScheduler {
         loop {
             match handler.execute(&task).await {
                 Ok(_) => {
-                    println!("Task {} executed successfully", task.id);
+                    log::info!("Task {} executed successfully", task.id);
                     task.reset_retry_count();
                     task.last_run = Some(chrono::Utc::now());
 
                     if let Err(e) = task.calculate_next_run() {
-                        eprintln!("Error calculating next run for task {}: {:?}", task.id, e);
+                        log::error!("Error calculating next run for task {}: {:?}", task.id, e);
                         return;
                     }
 
                     if let Err(e) = storage.save_task(task).await {
-                        eprintln!("Error updating task {:?}", e);
+                        log::error!("Error updating task {:?}", e);
                     }
                     return;
                 }
                 Err(e) => {
                     task.retry_count += 1;
-                    eprintln!(
+                    log::error!(
                         "Error executing task {}: {:?}. Retry count: {}",
-                        task.id, e, task.retry_count
+                        task.id,
+                        e,
+                        task.retry_count
                     );
 
                     if task.should_retry() {
@@ -78,17 +80,17 @@ impl TaskScheduler {
                         tokio::time::sleep(retry_delay).await;
                         continue;
                     } else {
-                        eprintln!("Max retries reached for task {}. Giving up.", task.id);
+                        log::error!("Max retries reached for task {}. Giving up.", task.id);
                         task.last_run = Some(chrono::Utc::now());
 
                         if let Err(e) = task.calculate_next_run() {
-                            eprintln!("Error calculating next run for task {}: {:?}", task.id, e);
+                            log::error!("Error calculating next run for task {}: {:?}", task.id, e);
                         } else {
                             task.reset_retry_count();
                         }
 
                         if let Err(e) = storage.save_task(task).await {
-                            eprintln!("Error updating task {:?}", e);
+                            log::error!("Error updating task {:?}", e);
                         }
                         return;
                     }
@@ -138,12 +140,12 @@ impl TaskScheduler {
                                         .await;
                                 });
                             } else {
-                                eprintln!("No handler registered for task {}", task.id);
+                                log::error!("No handler registered for task {}", task.id);
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("Error fetching ready tasks: {:?}", e);
+                        log::error!("Error fetching ready tasks: {:?}", e);
                     }
                 }
             }

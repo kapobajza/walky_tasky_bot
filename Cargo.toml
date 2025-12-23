@@ -6,3 +6,6 @@ license = "MIT"
 
 [workspace.dependencies]
 sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "time"] }
+tokio = { version = "1.47.1" }
+log = "0.4.29"
+pretty_env_logger = "0.5"

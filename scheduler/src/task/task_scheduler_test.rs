@@ -98,7 +98,7 @@ async fn test_add_and_execute_task() {
         .add_task(
             Task::new_with_datetime(next_run),
             Arc::new(SimpleTaskHandler::new(|task| {
-                println!("Task executed: {:?}", task);
+                log::info!("Task executed: {:?}", task);
                 Ok(())
             })),
         )
@@ -141,7 +141,7 @@ async fn test_retry_task_on_failure() {
                     drop(count);
 
                     if current_attempt < 3 {
-                        println!("Simulated failure for attempt {}", current_attempt);
+                        log::info!("Simulated failure for attempt {}", current_attempt);
                         Err(crate::error::SchedulerError::TaskExecutionError(
                             "Simulated failure".into(),
                         ))
@@ -184,7 +184,7 @@ async fn test_execute_unfinished_tasks_on_startup() {
         .add_task(
             task_to_save,
             Arc::new(SimpleTaskHandler::new(|task| {
-                println!("Task executed on startup: {:?}", task);
+                log::info!("Task executed on startup: {:?}", task);
                 Ok(())
             })),
         )

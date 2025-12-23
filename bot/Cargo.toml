@@ -6,3 +6,9 @@ edition = "2024"
 [dependencies]
 scheduler = { path = "../scheduler" }
 sqlx = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
+teloxide = { version = "0.17.0", features = ["macros"] }
+log = { workspace = true }
+pretty_env_logger = { workspace = true }
+chrono = "0.4.42"
+chrono-tz = "0.10.4"

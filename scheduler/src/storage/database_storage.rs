@@ -8,7 +8,7 @@ use crate::{
 };
 
 pub struct DatabaseStorage {
-    pool: sqlx::PgPool,
+    pub pool: sqlx::PgPool,
 }
 
 impl DatabaseStorage {

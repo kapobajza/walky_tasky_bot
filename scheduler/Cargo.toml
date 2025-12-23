@@ -10,9 +10,11 @@ chrono = "0.4.42"
 cron = "0.15.0"
 serde = "1.0.228"
 thiserror = "2.0.17"
-tokio = { version = "1.47.1", features = ["sync", "rt", "time", "macros"] }
+tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
 uuid = { version = "1.18.1", features = ["v4"] }
 sqlx = { workspace = true }
+log = { workspace = true }
+pretty_env_logger = { workspace = true }
 
 [dev-dependencies]
 testcontainers = "0.25.0"
