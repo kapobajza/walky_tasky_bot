@@ -28,9 +28,12 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let scheduler = TaskScheduler::new(Arc::new(db_storage));
     scheduler.start().await?;
+    let handle = scheduler.shutdown_on_ctrl_c();
 
-    let chat_engine = ChatEngine::new(Bot::from_env());
+    let chat_engine = ChatEngine::new(Bot::from_env(), scheduler);
     chat_engine.run().await?;
+
+    handle.await??;
 
     Ok(())
 }

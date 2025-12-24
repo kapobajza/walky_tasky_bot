@@ -26,15 +26,17 @@ impl Storage for DatabaseStorage {
         let db_task = Task::to_db_task(&task)?;
 
         let task_id = sqlx::query_scalar!(
-            "INSERT INTO tasks (id, schedule_type, last_run, next_run, retry_count, max_retries, retry_delay)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            "INSERT INTO tasks (id, schedule_type, last_run, next_run, retry_count, max_retries, retry_delay, schedule, enabled)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (id) DO UPDATE SET
                 schedule_type = EXCLUDED.schedule_type,
                 last_run = EXCLUDED.last_run,
                 next_run = EXCLUDED.next_run,
                 retry_count = EXCLUDED.retry_count,
                 max_retries = EXCLUDED.max_retries,
-                retry_delay = EXCLUDED.retry_delay
+                retry_delay = EXCLUDED.retry_delay,
+                schedule = EXCLUDED.schedule,
+                enabled = EXCLUDED.enabled
             RETURNING id",
             db_task.id,
             db_task.schedule_type,
@@ -43,6 +45,8 @@ impl Storage for DatabaseStorage {
             db_task.retry_count,
             db_task.max_retries,
             db_task.retry_delay,
+            db_task.schedule,
+            db_task.enabled
         ).fetch_one(&self.pool)
             .await
             .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;

@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -9,11 +13,13 @@ use crate::{
     task::{default::Task, task_handler::TaskHandler},
 };
 
+#[derive(Clone)]
 pub struct TaskScheduler {
     storage: Arc<dyn Storage>,
     handlers: Arc<RwLock<HashMap<Uuid, Arc<dyn TaskHandler>>>>,
     running: Arc<RwLock<bool>>,
     check_interval: Duration,
+    executing_tasks: Arc<RwLock<HashSet<Uuid>>>,
 }
 
 impl TaskScheduler {
@@ -23,6 +29,7 @@ impl TaskScheduler {
             handlers: Arc::new(RwLock::new(HashMap::new())),
             running: Arc::new(RwLock::new(false)),
             check_interval: Duration::from_millis(500),
+            executing_tasks: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -48,6 +55,7 @@ impl TaskScheduler {
         handler: Arc<dyn TaskHandler>,
         mut task: Task,
         storage: Arc<dyn Storage>,
+        executing_tasks: Arc<RwLock<HashSet<Uuid>>>,
     ) {
         loop {
             match handler.execute(&task).await {
@@ -55,6 +63,9 @@ impl TaskScheduler {
                     log::info!("Task {} executed successfully", task.id);
                     task.reset_retry_count();
                     task.last_run = Some(chrono::Utc::now());
+
+                    let mut executing_guard = executing_tasks.write().await;
+                    executing_guard.remove(&task.id);
 
                     if let Err(e) = task.calculate_next_run() {
                         log::error!("Error calculating next run for task {}: {:?}", task.id, e);
@@ -64,6 +75,7 @@ impl TaskScheduler {
                     if let Err(e) = storage.save_task(task).await {
                         log::error!("Error updating task {:?}", e);
                     }
+
                     return;
                 }
                 Err(e) => {
@@ -112,6 +124,7 @@ impl TaskScheduler {
         let handlers = Arc::clone(&self.handlers);
         let running = Arc::clone(&self.running);
         let check_interval = self.check_interval;
+        let executing_tasks = Arc::clone(&self.executing_tasks);
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(check_interval);
@@ -129,15 +142,29 @@ impl TaskScheduler {
                 match storage.get_ready_tasks().await {
                     Ok(ready_tasks) => {
                         for task in ready_tasks {
+                            let mut executing_guard = executing_tasks.write().await;
+
+                            if executing_guard.contains(&task.id) {
+                                continue;
+                            } else {
+                                executing_guard.insert(task.id);
+                            }
+
                             let handlers_guard = handlers.read().await;
 
                             if let Some(handler) = handlers_guard.get(&task.id) {
                                 let handler = Arc::clone(handler);
                                 let storage_clone = Arc::clone(&storage);
+                                let executing_tasks = Arc::clone(&executing_tasks);
 
                                 tokio::spawn(async move {
-                                    Self::execute_task_with_retry(handler, task, storage_clone)
-                                        .await;
+                                    Self::execute_task_with_retry(
+                                        handler,
+                                        task,
+                                        storage_clone,
+                                        executing_tasks,
+                                    )
+                                    .await;
                                 });
                             } else {
                                 log::error!("No handler registered for task {}", task.id);
@@ -161,5 +188,16 @@ impl TaskScheduler {
         }
         *running = false;
         Ok(())
+    }
+
+    pub fn shutdown_on_ctrl_c(&self) -> tokio::task::JoinHandle<Result<(), SchedulerError>> {
+        let running = Arc::clone(&self.running);
+        tokio::spawn(async move {
+            tokio::signal::ctrl_c().await?;
+            log::info!("Ctrl-C received, shutting down scheduler...");
+            let mut running_guard = running.write().await;
+            *running_guard = false;
+            Ok(())
+        })
     }
 }

@@ -22,4 +22,7 @@ pub enum SchedulerError {
 
     #[error("Migration error: {0}")]
     MigrationError(String),
+
+    #[error("I/O error: {0}")]
+    IoError(#[from] std::io::Error),
 }

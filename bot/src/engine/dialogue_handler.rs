@@ -1,4 +1,9 @@
+use std::sync::Arc;
+
 use chrono::{Datelike, NaiveDate, TimeZone};
+use scheduler::task::{
+    default::Task, task_handler::SimpleTaskHandler, task_scheduler::TaskScheduler,
+};
 use teloxide::{
     Bot,
     dispatching::{DpHandlerDescription, HandlerExt, UpdateFilterExt, dialogue::InMemStorage},
@@ -16,7 +21,7 @@ use crate::engine::{
         TIME_SELECTION_CALLBACK_PREFIX, TIME_SELECTION_CANCEL, TIME_SELECTION_PAGE_PREFIX,
         create_calendar_keyboard, create_task_type_keyboard, create_time_selection_keyboard,
     },
-    utils::{CALENDAR_DEFAULT_DATE_FORMAT, ChatHandlerResult},
+    utils::{CALENDAR_DEFAULT_DATE_FORMAT, ChatHandlerResult, TIME_DEFAULT_FORMAT},
 };
 
 #[derive(Clone, Default, Debug)]
@@ -68,14 +73,19 @@ pub fn build_dialogue_handler() -> Handler<
         )
 }
 
-pub fn build_dialogue_callback_handler() -> Handler<
+pub fn build_dialogue_callback_handler(
+    scheduler: TaskScheduler,
+) -> Handler<
     'static,
     Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>,
     DpHandlerDescription,
 > {
     Update::filter_callback_query()
         .enter_dialogue::<CallbackQuery, InMemStorage<TaskState>, TaskState>()
-        .endpoint(handle_callback)
+        .endpoint(move |bot: Bot, q: CallbackQuery, dialogue: TaskDialogue| {
+            let scheduler = scheduler.clone();
+            async move { handle_callback(bot, q, dialogue, &scheduler).await }
+        })
 }
 
 async fn receive_task_name(bot: Bot, msg: Message, dialogue: TaskDialogue) -> ChatHandlerResult {
@@ -99,7 +109,12 @@ async fn receive_task_name(bot: Bot, msg: Message, dialogue: TaskDialogue) -> Ch
     Ok(())
 }
 
-async fn handle_callback(bot: Bot, q: CallbackQuery, dialogue: TaskDialogue) -> ChatHandlerResult {
+async fn handle_callback(
+    bot: Bot,
+    q: CallbackQuery,
+    dialogue: TaskDialogue,
+    scheduler: &TaskScheduler,
+) -> ChatHandlerResult {
     if let Some(data) = &q.data {
         let chat_id = q
             .message
@@ -146,7 +161,8 @@ async fn handle_callback(bot: Bot, q: CallbackQuery, dialogue: TaskDialogue) -> 
             s if s.starts_with(TIME_SELECTION_CALLBACK_PREFIX) => {
                 let time_str = s.trim_start_matches(TIME_SELECTION_CALLBACK_PREFIX);
                 remove_keyboard_buttons(&bot, &q).await;
-                handle_time_selection(bot.clone(), chat_id, dialogue, state, time_str).await?;
+                handle_time_selection(bot.clone(), chat_id, dialogue, state, time_str, scheduler)
+                    .await?;
             }
             s if s.starts_with(CALENDAR_CALLBACK_PREV_PREFIX)
                 || s.starts_with(CALENDAR_CALLBACK_NEXT_PREFIX) =>
@@ -294,17 +310,33 @@ async fn handle_time_selection(
     dialogue: TaskDialogue,
     state: TaskState,
     time_str: &str,
+    scheduler: &TaskScheduler,
 ) -> ChatHandlerResult {
     match state {
         TaskState::AwaitingSpecificTime { task_name, date } => {
             bot.send_message(
                 chat_id,
                 format!(
-                    "Hvala! Zakazujem zadatak \"{}\" za {} u {}.",
+                    "Hvala! Zakazujem zadatak \"{}\" {} u {}.",
                     task_name, date, time_str
                 ),
             )
             .await?;
+
+            let next_run = chrono::NaiveDateTime::parse_from_str(
+                &format!("{} {}", date, time_str),
+                &format!("{} {}", CALENDAR_DEFAULT_DATE_FORMAT, TIME_DEFAULT_FORMAT),
+            )?
+            .and_utc();
+            scheduler
+                .add_task(
+                    Task::new_with_datetime(next_run),
+                    Arc::new(SimpleTaskHandler::new(|task| {
+                        log::info!("Executing task: {:?}", task);
+                        Ok(())
+                    })),
+                )
+                .await?;
         }
         TaskState::AwaitingRecurringTime {
             task_name,

@@ -1,3 +1,4 @@
+use scheduler::task::task_scheduler::TaskScheduler;
 use teloxide::{
     Bot,
     dispatching::{UpdateFilterExt, dialogue::InMemStorage},
@@ -16,11 +17,12 @@ use crate::engine::{
 
 pub struct ChatEngine {
     bot: Bot,
+    scheduler: TaskScheduler,
 }
 
 impl ChatEngine {
-    pub fn new(bot: Bot) -> Self {
-        ChatEngine { bot }
+    pub fn new(bot: Bot, scheduler: TaskScheduler) -> Self {
+        ChatEngine { bot, scheduler }
     }
 
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -30,7 +32,8 @@ impl ChatEngine {
             .bot
             .get_me()
             .await?
-            .username.clone()
+            .username
+            .clone()
             .ok_or("Username not found")?;
 
         let command_handler = build_command_handler();
@@ -40,7 +43,7 @@ impl ChatEngine {
             .endpoint(bot_mentioned_handler);
 
         let dialogue_handler = build_dialogue_handler();
-        let dialogue_callback_handler = build_dialogue_callback_handler();
+        let dialogue_callback_handler = build_dialogue_callback_handler(self.scheduler.clone());
 
         let handler = dptree::entry()
             .branch(command_handler)
@@ -63,13 +66,13 @@ fn is_bot_mentioned(msg: &Message, bot_username: &str) -> bool {
     if let Some(entities) = msg.entities() {
         for entity in entities {
             if let teloxide::types::MessageEntityKind::Mention = entity.kind
-                && let Some(text) = msg.text() {
-                    let mention =
-                        &text[entity.offset..(entity.offset + entity.length)];
-                    if mention == format!("@{}", bot_username) {
-                        return true;
-                    }
+                && let Some(text) = msg.text()
+            {
+                let mention = &text[entity.offset..(entity.offset + entity.length)];
+                if mention == format!("@{}", bot_username) {
+                    return true;
                 }
+            }
         }
     }
 

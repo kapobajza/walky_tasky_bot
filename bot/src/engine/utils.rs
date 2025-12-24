@@ -37,3 +37,5 @@ pub async fn send_welcome_message(bot: Bot, chat_id: ChatId) {
 pub type ChatHandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 pub static CALENDAR_DEFAULT_DATE_FORMAT: &str = "%d.%m.%Y";
+
+pub static TIME_DEFAULT_FORMAT: &str = "%H:%M";

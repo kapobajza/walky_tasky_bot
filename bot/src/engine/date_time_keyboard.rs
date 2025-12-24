@@ -166,39 +166,41 @@ pub static TIME_SELECTION_PAGE_PREFIX: &str = "time_page_";
 
 pub fn create_time_selection_keyboard(
     min_time: Option<NaiveTime>,
-    page: usize, // new parameter
+    page: usize,
 ) -> InlineKeyboardMarkup {
     let mut rows: Vec<Vec<InlineKeyboardButton>> = vec![];
-    let min_minutes = min_time.map(|d| d.hour() * 60 + d.minute());
+    let min_minutes = min_time.map(|t| t.hour() * 60 + t.minute());
 
     let slots_per_page = 16;
     let total_slots = 24 * 4;
-    let start_slot = page * slots_per_page;
-    let end_slot = ((page + 1) * slots_per_page).min(total_slots);
+    // let start_slot = page * slots_per_page;
+    // let end_slot = ((page + 1) * slots_per_page).min(total_slots);
 
-    for slot in start_slot..end_slot {
+    let available_slots: Vec<usize> = (0..total_slots)
+        .filter(|&slot| {
+            let total_minutes = (slot / 4 * 60 + (slot % 4) * 15) as u32;
+            !min_minutes.map(|m| total_minutes < m).unwrap_or(false)
+        })
+        .collect();
+    let total_available = available_slots.len();
+    let total_pages = total_available.div_ceil(slots_per_page);
+    let page = page.min(total_pages - 1);
+    let start_idx = page * slots_per_page;
+    let end_idx = ((page + 1) * slots_per_page).min(total_available);
+
+    for (i, &slot) in available_slots[start_idx..end_idx].iter().enumerate() {
         let hour = slot / 4;
         let minute = (slot % 4) * 15;
-        let total_minutes = (hour * 60 + minute) as u32;
-        let is_disabled = min_minutes.map(|m| total_minutes < m).unwrap_or(false);
 
         let button = InlineKeyboardButton::callback(
-            if is_disabled {
-                "x".to_string()
-            } else {
-                format!("{:02}:{:02}", hour, minute)
-            },
-            if is_disabled {
-                TIME_SELECTION_IGNORE.to_string()
-            } else {
-                format!(
-                    "{}{:02}:{:02}",
-                    TIME_SELECTION_CALLBACK_PREFIX, hour, minute
-                )
-            },
+            format!("{:02}:{:02}", hour, minute),
+            format!(
+                "{}{:02}:{:02}",
+                TIME_SELECTION_CALLBACK_PREFIX, hour, minute
+            ),
         );
 
-        if (slot - start_slot).is_multiple_of(4) {
+        if i % 4 == 0 {
             rows.push(vec![button]);
         } else if let Some(last_row) = rows.last_mut() {
             last_row.push(button);
@@ -219,7 +221,7 @@ pub fn create_time_selection_keyboard(
         "❌ Odustani",
         TIME_SELECTION_CANCEL,
     ));
-    if end_slot < total_slots {
+    if page + 1 < total_slots {
         nav_row.push(InlineKeyboardButton::callback(
             "▶️",
             format!("{}{}", TIME_SELECTION_PAGE_PREFIX, page + 1),
