@@ -23,6 +23,18 @@ pub enum SchedulerError {
     #[error("Migration error: {0}")]
     MigrationError(String),
 
+    #[error("Unsupported action type")]
+    UnsupportedAction,
+
+    #[error("Action missing for the task {0}")]
+    ActionMissing(String),
+
+    #[error("Action not found in registry")]
+    RegistryActionNotFound,
+
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
+
+    #[error("Serialization/Deserialization error: {0}")]
+    SerdeError(#[from] serde_json::Error),
 }

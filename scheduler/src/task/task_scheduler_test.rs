@@ -5,19 +5,68 @@ use std::{
 
 use crate::{
     db::migrator::Migrator,
+    error::SchedulerError,
     storage::{
         base_storage::Storage, database_storage::DatabaseStorage,
         in_memory_storage::InMemoryStorage,
     },
     task::{
+        action::{ActionType, TaskAction},
+        action_executor::ActionExecutor,
+        action_registry::ActionRegistry,
         default::{Task, TaskType},
-        task_handler::{AsyncTaskHandler, SimpleTaskHandler},
+        log_executor::LogExecutor,
         task_scheduler::TaskScheduler,
     },
 };
+use async_trait::async_trait;
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ImageExt};
 use testcontainers_modules::postgres::Postgres as PostgresImage;
+
+/// Test executor that tracks execution attempts
+struct CountingExecutor {
+    counter: Arc<tokio::sync::Mutex<u32>>,
+    fail_until: u32,
+}
+
+impl CountingExecutor {
+    fn new(counter: Arc<tokio::sync::Mutex<u32>>, fail_until: u32) -> Self {
+        Self {
+            counter,
+            fail_until,
+        }
+    }
+}
+
+#[async_trait]
+impl ActionExecutor for CountingExecutor {
+    fn supported_actions(&self) -> Vec<ActionType> {
+        vec![ActionType::Log]
+    }
+
+    async fn execute(&self, _task: &Task, _action: &TaskAction) -> Result<(), SchedulerError> {
+        let mut count = self.counter.lock().await;
+        *count += 1;
+        let current_attempt = *count;
+        drop(count);
+
+        if current_attempt < self.fail_until {
+            log::info!("Simulated failure for attempt {}", current_attempt);
+            Err(SchedulerError::TaskExecutionError(
+                "Simulated failure".into(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn create_test_registry() -> ActionRegistry {
+    let mut registry = ActionRegistry::new();
+    registry.register(LogExecutor::new());
+    registry
+}
 
 static DB_NAME: &str = "test_db";
 
@@ -89,19 +138,19 @@ async fn get_run_tasks<S: Storage + ?Sized>(storage: &Arc<S>) -> usize {
 #[tokio::test]
 async fn test_add_and_execute_task() {
     let storage = Arc::new(InMemoryStorage::new());
-    let scheduler =
-        TaskScheduler::new(storage.clone()).with_check_interval(time::Duration::from_millis(50));
+    let registry = create_test_registry();
+    let scheduler = TaskScheduler::new(storage.clone(), registry)
+        .with_check_interval(time::Duration::from_millis(50));
     let now = chrono::Utc::now();
     let next_run = now + chrono::Duration::milliseconds(10);
 
+    let action = TaskAction::Log {
+        message: "Test task".to_string(),
+        level: "info".to_string(),
+    };
+
     scheduler
-        .add_task(
-            Task::new_with_datetime(next_run),
-            Arc::new(SimpleTaskHandler::new(|task| {
-                log::info!("Task executed: {:?}", task);
-                Ok(())
-            })),
-        )
+        .add_task(Task::new_with_datetime(next_run, action))
         .await
         .unwrap();
 
@@ -120,36 +169,26 @@ async fn test_add_and_execute_task() {
 #[tokio::test]
 async fn test_retry_task_on_failure() {
     let storage = Arc::new(InMemoryStorage::new());
-    let scheduler =
-        TaskScheduler::new(storage.clone()).with_check_interval(time::Duration::from_millis(50));
+    let attempt_counter = Arc::new(tokio::sync::Mutex::new(0));
+
+    let mut registry = ActionRegistry::new();
+    registry.register(CountingExecutor::new(attempt_counter.clone(), 3));
+
+    let scheduler = TaskScheduler::new(storage.clone(), registry)
+        .with_check_interval(time::Duration::from_millis(50));
     let now = chrono::Utc::now();
     let next_run = now + chrono::Duration::milliseconds(10);
-    let attempt_counter = Arc::new(tokio::sync::Mutex::new(0));
-    let attempt_counter_clone = attempt_counter.clone();
+
+    let action = TaskAction::Log {
+        message: "Test retry task".to_string(),
+        level: "info".to_string(),
+    };
 
     scheduler
         .add_task(
-            Task::new_with_datetime(next_run)
+            Task::new_with_datetime(next_run, action)
                 .with_max_retries(3)
                 .with_retry_delay(Duration::from_millis(10)),
-            Arc::new(AsyncTaskHandler::new(move |_| {
-                let counter = attempt_counter_clone.clone();
-                async move {
-                    let mut count = counter.lock().await;
-                    *count += 1;
-                    let current_attempt = *count;
-                    drop(count);
-
-                    if current_attempt < 3 {
-                        log::info!("Simulated failure for attempt {}", current_attempt);
-                        Err(crate::error::SchedulerError::TaskExecutionError(
-                            "Simulated failure".into(),
-                        ))
-                    } else {
-                        Ok(())
-                    }
-                }
-            })),
         )
         .await
         .unwrap();
@@ -165,31 +204,27 @@ async fn test_retry_task_on_failure() {
     assert_eq!(run_tasks, 1);
 
     let final_attempts = *attempt_counter.lock().await;
-    assert_eq!(final_attempts, 4);
+    assert_eq!(final_attempts, 3);
 }
 
 #[tokio::test]
 async fn test_execute_unfinished_tasks_on_startup() {
     let (_pool, container) = setup_database().await;
     let storage = setup_db_storage(&container).await;
-    let scheduler =
-        TaskScheduler::new(storage.clone()).with_check_interval(time::Duration::from_millis(50));
+    let registry = create_test_registry();
+    let scheduler = TaskScheduler::new(storage.clone(), registry)
+        .with_check_interval(time::Duration::from_millis(50));
     let now = chrono::Utc::now();
     let next_run = now - chrono::Duration::days(1);
-    let mut task_to_save = Task::new_with_datetime(next_run);
-    let task_id = storage.save_task(task_to_save.clone()).await.unwrap();
-    task_to_save.id = task_id;
 
-    scheduler
-        .add_task(
-            task_to_save,
-            Arc::new(SimpleTaskHandler::new(|task| {
-                log::info!("Task executed on startup: {:?}", task);
-                Ok(())
-            })),
-        )
-        .await
-        .unwrap();
+    let action = TaskAction::Log {
+        message: "Test startup task".to_string(),
+        level: "info".to_string(),
+    };
+
+    let task_to_save = Task::new_with_datetime(next_run, action);
+
+    scheduler.add_task(task_to_save).await.unwrap();
 
     let run_tasks = get_run_tasks(&storage).await;
     assert_eq!(run_tasks, 0);
@@ -201,13 +236,13 @@ async fn test_execute_unfinished_tasks_on_startup() {
     let run_tasks = get_run_tasks(&storage).await;
     assert_eq!(run_tasks, 1);
 }
-
 #[tokio::test]
 async fn test_do_not_execute_disabled_tasks() {
     let (_pool, container) = setup_database().await;
     let storage = setup_db_storage(&container).await;
-    let scheduler =
-        TaskScheduler::new(storage.clone()).with_check_interval(time::Duration::from_millis(50));
+    let registry = create_test_registry();
+    let scheduler = TaskScheduler::new(storage.clone(), registry)
+        .with_check_interval(time::Duration::from_millis(50));
     let now = chrono::Utc::now();
 
     storage
@@ -220,6 +255,10 @@ async fn test_do_not_execute_disabled_tasks() {
             max_retries: 3,
             retry_delay: Duration::from_millis(10),
             enabled: false,
+            action: Some(TaskAction::Log {
+                message: "Disabled task".to_string(),
+                level: "info".to_string(),
+            }),
         })
         .await
         .unwrap();

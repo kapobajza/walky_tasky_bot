@@ -1,12 +1,16 @@
 use scheduler::{
-    db::migrator::Migrator, storage::database_storage::DatabaseStorage,
-    task::task_scheduler::TaskScheduler,
+    db::migrator::Migrator,
+    storage::database_storage::DatabaseStorage,
+    task::{
+        action_registry::ActionRegistry, log_executor::LogExecutor, task_scheduler::TaskScheduler,
+    },
 };
 use std::sync::Arc;
 use teloxide::Bot;
 
-use crate::engine::chat_engine::ChatEngine;
+use crate::{bot_executor::BotExecutor, engine::chat_engine::ChatEngine};
 
+mod bot_executor;
 mod engine;
 
 #[tokio::main]
@@ -26,11 +30,17 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Migrator::run(&database_url).await?;
 
-    let scheduler = TaskScheduler::new(Arc::new(db_storage));
+    let bot = Bot::from_env();
+
+    let mut registry = ActionRegistry::new();
+    registry.register(LogExecutor::new());
+    registry.register(BotExecutor::new(bot.clone()));
+
+    let scheduler = TaskScheduler::new(Arc::new(db_storage), registry);
     scheduler.start().await?;
     let handle = scheduler.shutdown_on_ctrl_c();
 
-    let chat_engine = ChatEngine::new(Bot::from_env(), scheduler);
+    let chat_engine = ChatEngine::new(bot, scheduler);
     chat_engine.run().await?;
 
     handle.await??;

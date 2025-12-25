@@ -1,9 +1,6 @@
-use std::sync::Arc;
-
 use chrono::{Datelike, NaiveDate, TimeZone};
-use scheduler::task::{
-    default::Task, task_handler::SimpleTaskHandler, task_scheduler::TaskScheduler,
-};
+use chrono_tz::Europe::Sarajevo;
+use scheduler::task::{action::TaskAction, default::Task, task_scheduler::TaskScheduler};
 use teloxide::{
     Bot,
     dispatching::{DpHandlerDescription, HandlerExt, UpdateFilterExt, dialogue::InMemStorage},
@@ -314,29 +311,33 @@ async fn handle_time_selection(
 ) -> ChatHandlerResult {
     match state {
         TaskState::AwaitingSpecificTime { task_name, date } => {
+            let next_run = chrono::NaiveDateTime::parse_from_str(
+                &format!("{} {}", date, time_str),
+                &format!("{} {}", CALENDAR_DEFAULT_DATE_FORMAT, TIME_DEFAULT_FORMAT),
+            )?;
+            let next_run = next_run
+                .and_local_timezone(Sarajevo)
+                .single()
+                .ok_or("Failed to convert to timezone-aware datetime")?
+                .with_timezone(&chrono::Utc);
+
+            scheduler
+                .add_task(Task::new_with_datetime(
+                    next_run,
+                    TaskAction::SendBotMessage {
+                        chat_id: chat_id.0,
+                        message: format!("Podsjetnik za zadatak: {}", task_name),
+                    },
+                ))
+                .await?;
             bot.send_message(
                 chat_id,
                 format!(
-                    "Hvala! Zakazujem zadatak \"{}\" {} u {}.",
+                    "Zadatak \"{}\" je zakazan {} u {}.",
                     task_name, date, time_str
                 ),
             )
             .await?;
-
-            let next_run = chrono::NaiveDateTime::parse_from_str(
-                &format!("{} {}", date, time_str),
-                &format!("{} {}", CALENDAR_DEFAULT_DATE_FORMAT, TIME_DEFAULT_FORMAT),
-            )?
-            .and_utc();
-            scheduler
-                .add_task(
-                    Task::new_with_datetime(next_run),
-                    Arc::new(SimpleTaskHandler::new(|task| {
-                        log::info!("Executing task: {:?}", task);
-                        Ok(())
-                    })),
-                )
-                .await?;
         }
         TaskState::AwaitingRecurringTime {
             task_name,

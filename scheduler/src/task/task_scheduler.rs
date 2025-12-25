@@ -1,8 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -10,23 +6,23 @@ use uuid::Uuid;
 use crate::{
     error::SchedulerError,
     storage::base_storage::Storage,
-    task::{default::Task, task_handler::TaskHandler},
+    task::{action_registry::ActionRegistry, default::Task},
 };
 
 #[derive(Clone)]
 pub struct TaskScheduler {
     storage: Arc<dyn Storage>,
-    handlers: Arc<RwLock<HashMap<Uuid, Arc<dyn TaskHandler>>>>,
+    action_registry: Arc<ActionRegistry>,
     running: Arc<RwLock<bool>>,
     check_interval: Duration,
     executing_tasks: Arc<RwLock<HashSet<Uuid>>>,
 }
 
 impl TaskScheduler {
-    pub fn new(storage: Arc<dyn Storage>) -> Self {
+    pub fn new(storage: Arc<dyn Storage>, registry: ActionRegistry) -> Self {
         Self {
             storage,
-            handlers: Arc::new(RwLock::new(HashMap::new())),
+            action_registry: Arc::new(registry),
             running: Arc::new(RwLock::new(false)),
             check_interval: Duration::from_millis(500),
             executing_tasks: Arc::new(RwLock::new(HashSet::new())),
@@ -38,27 +34,30 @@ impl TaskScheduler {
         self
     }
 
-    pub async fn add_task(
-        &self,
-        task: Task,
-        handler: Arc<dyn TaskHandler>,
-    ) -> Result<Uuid, SchedulerError> {
+    pub async fn add_task(&self, task: Task) -> Result<Uuid, SchedulerError> {
+        let action = match &task.action {
+            Some(act) => act,
+            None => {
+                return Err(SchedulerError::ActionMissing(task.id.to_string()));
+            }
+        };
+
+        if !self.action_registry.has_executor_for(action) {
+            return Err(SchedulerError::RegistryActionNotFound);
+        }
+
         self.storage.save_task(task.clone()).await?;
-
-        let mut handlers = self.handlers.write().await;
-        handlers.insert(task.id, handler);
-
         Ok(task.id)
     }
 
     async fn execute_task_with_retry(
-        handler: Arc<dyn TaskHandler>,
+        registry: Arc<ActionRegistry>,
         mut task: Task,
         storage: Arc<dyn Storage>,
         executing_tasks: Arc<RwLock<HashSet<Uuid>>>,
     ) {
         loop {
-            match handler.execute(&task).await {
+            match registry.execute(&task).await {
                 Ok(_) => {
                     log::info!("Task {} executed successfully", task.id);
                     task.reset_retry_count();
@@ -121,10 +120,10 @@ impl TaskScheduler {
         }
 
         let storage = Arc::clone(&self.storage);
-        let handlers = Arc::clone(&self.handlers);
         let running = Arc::clone(&self.running);
         let check_interval = self.check_interval;
         let executing_tasks = Arc::clone(&self.executing_tasks);
+        let registry = Arc::clone(&self.action_registry);
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(check_interval);
@@ -150,25 +149,21 @@ impl TaskScheduler {
                                 executing_guard.insert(task.id);
                             }
 
-                            let handlers_guard = handlers.read().await;
+                            drop(executing_guard);
 
-                            if let Some(handler) = handlers_guard.get(&task.id) {
-                                let handler = Arc::clone(handler);
-                                let storage_clone = Arc::clone(&storage);
-                                let executing_tasks = Arc::clone(&executing_tasks);
+                            let storage_clone = Arc::clone(&storage);
+                            let executing_tasks = Arc::clone(&executing_tasks);
+                            let registry = Arc::clone(&registry);
 
-                                tokio::spawn(async move {
-                                    Self::execute_task_with_retry(
-                                        handler,
-                                        task,
-                                        storage_clone,
-                                        executing_tasks,
-                                    )
-                                    .await;
-                                });
-                            } else {
-                                log::error!("No handler registered for task {}", task.id);
-                            }
+                            tokio::spawn(async move {
+                                Self::execute_task_with_retry(
+                                    registry,
+                                    task,
+                                    storage_clone,
+                                    executing_tasks,
+                                )
+                                .await;
+                            });
                         }
                     }
                     Err(e) => {

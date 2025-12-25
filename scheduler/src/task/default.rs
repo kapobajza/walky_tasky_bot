@@ -1,10 +1,10 @@
 use std::{str::FromStr, time::Duration};
 
 use chrono::{DateTime, Utc};
-use sqlx::types::time::OffsetDateTime;
+use sqlx::types::{JsonValue, time::OffsetDateTime};
 use uuid::Uuid;
 
-use crate::error::SchedulerError;
+use crate::{error::SchedulerError, task::action::TaskAction};
 
 #[derive(Clone, Debug)]
 pub enum TaskType {
@@ -31,6 +31,7 @@ pub struct TaskDb {
     pub max_retries: i32,
     pub retry_delay: i32,
     pub enabled: bool,
+    pub action: JsonValue,
 }
 
 #[derive(Clone, Debug)]
@@ -43,6 +44,7 @@ pub struct Task {
     pub max_retries: u32,
     pub retry_delay: Duration,
     pub schedule: TaskType,
+    pub action: Option<TaskAction>,
 }
 
 impl Default for Task {
@@ -56,12 +58,16 @@ impl Default for Task {
             max_retries: 3,
             retry_delay: Duration::from_millis(1000),
             schedule: TaskType::Once,
+            action: None,
         }
     }
 }
 
 impl Task {
-    pub fn new_with_cron(cron_expression: &str) -> Result<Self, SchedulerError> {
+    pub fn new_with_cron(
+        cron_expression: &str,
+        action: TaskAction,
+    ) -> Result<Self, SchedulerError> {
         let next_run = cron::Schedule::from_str(cron_expression)
             .map_err(SchedulerError::CronError)?
             .upcoming(Utc)
@@ -71,14 +77,16 @@ impl Task {
         Ok(Task {
             schedule: TaskType::Cron(cron_expression.to_string()),
             next_run,
+            action: Some(action),
             ..Default::default()
         })
     }
 
-    pub fn new_with_datetime(next_run: DateTime<Utc>) -> Self {
+    pub fn new_with_datetime(next_run: DateTime<Utc>, action: TaskAction) -> Self {
         Task {
             schedule: TaskType::Once,
             next_run,
+            action: Some(action),
             ..Default::default()
         }
     }
@@ -137,6 +145,12 @@ impl Task {
             .map(|dt| OffsetDateTime::from_unix_timestamp(dt.timestamp()))
             .transpose()
             .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
+        let action = match &self.action {
+            Some(act) => act,
+            None => {
+                return Err(SchedulerError::ActionMissing(self.id.to_string()));
+            }
+        };
 
         Ok(TaskDb {
             id: self.id,
@@ -151,6 +165,7 @@ impl Task {
                 TaskType::Once => None,
             },
             enabled: self.enabled,
+            action: serde_json::to_value(action)?,
         })
     }
 
@@ -172,6 +187,7 @@ impl Task {
         let last_run = db_task
             .last_run
             .map(|dt| DateTime::<Utc>::from_timestamp_nanos(dt.unix_timestamp_nanos() as i64));
+        let action: TaskAction = serde_json::from_value(db_task.action)?;
 
         Ok(Task {
             id: db_task.id,
@@ -182,6 +198,7 @@ impl Task {
             retry_count,
             max_retries,
             retry_delay,
+            action: Some(action),
         })
     }
 }
