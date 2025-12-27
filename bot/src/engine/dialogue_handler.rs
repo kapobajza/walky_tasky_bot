@@ -14,9 +14,9 @@ use crate::engine::{
     date_time_keyboard::{
         CALENDAR_CALLBACK_CANCEL, CALENDAR_CALLBACK_NEXT_PREFIX, CALENDAR_CALLBACK_PREV_PREFIX,
         CALENDAR_CALLBACK_SELECT_PREFIX, TASK_TYPE_CANCEL_ID, TASK_TYPE_RECURRING_ID,
-        TASK_TYPE_RECURRING_TEXT, TASK_TYPE_SPECIFIC_ID, TASK_TYPE_SPECIFIC_TEXT,
-        TIME_SELECTION_CALLBACK_PREFIX, TIME_SELECTION_CANCEL, TIME_SELECTION_PAGE_PREFIX,
-        create_calendar_keyboard, create_task_type_keyboard, create_time_selection_keyboard,
+        TASK_TYPE_SPECIFIC_ID, TIME_SELECTION_CALLBACK_PREFIX, TIME_SELECTION_CANCEL,
+        TIME_SELECTION_PAGE_PREFIX, create_calendar_keyboard, create_task_type_keyboard,
+        create_time_selection_keyboard,
     },
     utils::{CALENDAR_DEFAULT_DATE_FORMAT, ChatHandlerResult, TIME_DEFAULT_FORMAT},
 };
@@ -87,12 +87,7 @@ pub fn build_dialogue_callback_handler(
 
 async fn receive_task_name(bot: Bot, msg: Message, dialogue: TaskDialogue) -> ChatHandlerResult {
     if let Some(task_name) = msg.text() {
-        let message = format!(
-            "Da li želiš da zakažeš zadatak za određeni datum i vrijeme ili kao ponavljajući zadatak? (Odgovori sa '{}' ili '{}')",
-            TASK_TYPE_SPECIFIC_TEXT, TASK_TYPE_RECURRING_TEXT
-        );
-
-        bot.send_message(msg.chat.id, message)
+        bot.send_message(msg.chat.id, "Da li želiš da zakažeš zadatak na određeni datum i vrijeme ili kao ponavljajući zadatak? Određeni se izvršava samo jednom, dok se ponavljajući izvršava u određenim intervalima.")
             .reply_markup(create_task_type_keyboard())
             .await?;
 

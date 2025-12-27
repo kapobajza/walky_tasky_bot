@@ -28,7 +28,7 @@ impl ActionRegistry {
         for executor in &self.executors {
             match &task.action {
                 Some(action) => {
-                    if self.can_execute(action, executor) {
+                    if self.can_execute(action, &**executor) {
                         return executor.execute(task, action).await;
                     }
                 }
@@ -41,14 +41,14 @@ impl ActionRegistry {
 
     pub fn has_executor_for(&self, action: &TaskAction) -> bool {
         for executor in &self.executors {
-            if self.can_execute(action, executor) {
+            if self.can_execute(action, &**executor) {
                 return true;
             }
         }
         false
     }
 
-    fn can_execute(&self, action: &TaskAction, executor: &Box<dyn ActionExecutor>) -> bool {
+    fn can_execute(&self, action: &TaskAction, executor: &dyn ActionExecutor) -> bool {
         executor.supported_actions().contains(&action.action_type())
     }
 }
