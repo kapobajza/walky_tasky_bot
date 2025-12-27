@@ -1,6 +1,7 @@
+pub mod bot_mentioned_handler;
 pub mod chat_engine;
 mod command;
-mod command_handler;
-mod date_time_keyboard;
-mod dialogue_handler;
+pub mod command_handler;
+pub mod date_time_keyboard;
+pub mod dialogue_handler;
 pub mod utils;

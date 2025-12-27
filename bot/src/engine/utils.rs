@@ -2,7 +2,8 @@ use teloxide::{
     Bot,
     payloads::SendMessageSetters,
     prelude::Requester,
-    types::{BotName, ChatId, ParseMode},
+    types::{BotName, ChatId, Message, ParseMode},
+    utils::markdown,
 };
 
 pub async fn send_chat_message(bot: &Bot, chat_id: ChatId, text: String) {
@@ -39,3 +40,16 @@ pub type ChatHandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>
 pub static CALENDAR_DEFAULT_DATE_FORMAT: &str = "%d.%m.%Y";
 
 pub static TIME_DEFAULT_FORMAT: &str = "%H:%M";
+
+pub fn get_user_mention(msg: &Message) -> Option<String> {
+    if let Some(user) = &msg.from {
+        if let Some(uname) = &user.username {
+            return Some(format!("@{}", markdown::escape(uname)));
+        } else {
+            let display_name = markdown::escape(&user.first_name);
+            return Some(format!("[{}](tg://user?id={})", display_name, user.id));
+        }
+    }
+
+    None
+}
