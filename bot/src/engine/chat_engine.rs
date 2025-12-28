@@ -1,9 +1,10 @@
 use scheduler::task::task_scheduler::TaskScheduler;
 use teloxide::{
     Bot,
-    dispatching::dialogue::InMemStorage,
+    dispatching::{UpdateFilterExt, dialogue::InMemStorage},
     dptree::{self},
     prelude::{Dispatcher, Requester},
+    types::Update,
 };
 
 use crate::engine::{
@@ -35,7 +36,6 @@ impl ChatEngine {
 
         let command_handler = build_command_handler();
         let mention_handler = build_bot_mentioned_handler(bot_username);
-
         let dialogue_handler = build_dialogue_handler();
         let dialogue_callback_handler = build_dialogue_callback_handler(self.scheduler.clone());
 
@@ -43,7 +43,8 @@ impl ChatEngine {
             .branch(command_handler)
             .branch(dialogue_handler)
             .branch(dialogue_callback_handler)
-            .branch(mention_handler);
+            .branch(mention_handler)
+            .branch(Update::filter_message().endpoint(|| async { Ok(()) }));
 
         Dispatcher::builder(self.bot.clone(), handler)
             .dependencies(dptree::deps![InMemStorage::<TaskState>::new()])

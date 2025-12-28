@@ -1,18 +1,18 @@
 #!/bin/sh
 
-# Run cargo fmt check
-echo "Running cargo fmt..."
-cargo fmt --all -- --check
-if [ $? -ne 0 ]; then
-    echo "❌ Code formatting issues detected. Run 'cargo fmt' to fix them."
-    exit 1
-fi
-
 # Run clippy
 echo "Running cargo clippy..."
 cargo clippy --all-targets --all-features --fix --allow-dirty -- -D warnings
 if [ $? -ne 0 ]; then
     echo "❌ Clippy found issues. Please fix them before committing."
+    exit 1
+fi
+
+# Run cargo fmt check
+echo "Running cargo fmt..."
+cargo fmt --all -- --check
+if [ $? -ne 0 ]; then
+    echo "❌ Code formatting issues detected. Run 'cargo fmt' to fix them."
     exit 1
 fi
 

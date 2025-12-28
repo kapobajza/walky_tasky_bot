@@ -1,5 +1,19 @@
-use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
-use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+use chrono::{Datelike, NaiveDate};
+use teloxide::{
+    Bot,
+    payloads::{EditMessageReplyMarkupSetters, SendMessageSetters},
+    prelude::Requester,
+    types::{CallbackQuery, ChatId, InlineKeyboardButton, InlineKeyboardMarkup},
+};
+
+use crate::engine::{
+    dialogue_handler::{TaskDialogue, TaskState},
+    time_keyboard::create_time_selection_keyboard,
+    utils::{
+        CALENDAR_DEFAULT_DATE_FORMAT, ChatHandlerResult, get_current_date_in_bosnia,
+        get_current_time_in_bosnia,
+    },
+};
 
 pub static CALENDAR_CALLBACK_SELECT_PREFIX: &str = "cal_select_";
 pub static CALENDAR_CALLBACK_PREV_PREFIX: &str = "cal_prev_";
@@ -133,103 +147,97 @@ fn get_days_in_month(year: i32, month: u32) -> u32 {
         .day()
 }
 
-pub static TASK_TYPE_SPECIFIC_TEXT: &str = "određeni";
-pub static TASK_TYPE_RECURRING_TEXT: &str = "ponavljajući";
+pub async fn handle_keyboard_date_selection(
+    bot: Bot,
+    chat_id: ChatId,
+    dialogue: TaskDialogue,
+    state: TaskState,
+    date: NaiveDate,
+) -> ChatHandlerResult {
+    let min_time = if date == get_current_date_in_bosnia() {
+        Some(get_current_time_in_bosnia())
+    } else {
+        None
+    };
 
-pub static TASK_TYPE_SPECIFIC_ID: &str = "task_type_specific";
-pub static TASK_TYPE_RECURRING_ID: &str = "task_type_recurring";
-pub static TASK_TYPE_CANCEL_ID: &str = "task_cancel";
+    match state {
+        TaskState::AwaitingSpecificDate { task_name } => {
+            bot.send_message(chat_id, "Odaberi vrijeme za zadatak:")
+                .reply_markup(create_time_selection_keyboard(min_time, 0))
+                .await?;
+            dialogue
+                .update(TaskState::AwaitingSpecificTime {
+                    task_name,
+                    date: date.format(CALENDAR_DEFAULT_DATE_FORMAT).to_string(),
+                })
+                .await?;
+        }
+        TaskState::AwaitingRecurringStartDate { task_name } => {
+            let now = get_current_date_in_bosnia();
+            let start_date = date.format(CALENDAR_DEFAULT_DATE_FORMAT).to_string();
 
-pub fn create_task_type_keyboard() -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![
-        vec![
-            InlineKeyboardButton::callback(
-                format!("📅 {}", TASK_TYPE_SPECIFIC_TEXT),
-                TASK_TYPE_SPECIFIC_ID,
-            ),
-            InlineKeyboardButton::callback(
-                format!("🔄 {}", TASK_TYPE_RECURRING_TEXT),
-                TASK_TYPE_RECURRING_ID,
-            ),
-        ],
-        vec![InlineKeyboardButton::callback(
-            "❌ Odustani",
-            TASK_TYPE_CANCEL_ID,
-        )],
-    ])
+            bot.send_message(chat_id, "Odaberi završni datum za ponavljajući zadatak:")
+                .reply_markup(create_calendar_keyboard(now.year(), now.month(), Some(now)))
+                .await?;
+            dialogue
+                .update(TaskState::AwaitingRecurringEndDate {
+                    task_name,
+                    start_date,
+                })
+                .await?;
+        }
+        TaskState::AwaitingRecurringEndDate {
+            task_name,
+            start_date,
+        } => {
+            bot.send_message(chat_id, "Odaberi vrijeme za zadatak:")
+                .reply_markup(create_time_selection_keyboard(min_time, 0))
+                .await?;
+            dialogue
+                .update(TaskState::AwaitingRecurringTime {
+                    task_name,
+                    start_date,
+                    end_date: date.format(CALENDAR_DEFAULT_DATE_FORMAT).to_string(),
+                })
+                .await?;
+        }
+        _ => {}
+    }
+
+    Ok(())
 }
 
-pub static TIME_SELECTION_CALLBACK_PREFIX: &str = "time_select_";
-pub static TIME_SELECTION_CANCEL: &str = "time_cancel";
-pub static TIME_SELECTION_IGNORE: &str = "time_ignore";
-pub static TIME_SELECTION_PAGE_PREFIX: &str = "time_page_";
+pub async fn handle_keyboard_calendar_navigation(
+    bot: Bot,
+    q: &CallbackQuery,
+    data: &str,
+) -> ChatHandlerResult {
+    let parts: Vec<&str> = data.split('_').collect();
+    if parts.len() >= 4 {
+        let year: i32 = parts[2].parse().unwrap_or(2025);
+        let month: u32 = parts[3].parse().unwrap_or(1);
 
-pub fn create_time_selection_keyboard(
-    min_time: Option<NaiveTime>,
-    page: usize,
-) -> InlineKeyboardMarkup {
-    let mut rows: Vec<Vec<InlineKeyboardButton>> = vec![];
-    let min_minutes = min_time.map(|t| t.hour() * 60 + t.minute());
+        let (new_year, new_month) = if data.starts_with(CALENDAR_CALLBACK_PREV_PREFIX) {
+            if month == 1 {
+                (year - 1, 12)
+            } else {
+                (year, month - 1)
+            }
+        } else if month == 12 {
+            (year + 1, 1)
+        } else {
+            (year, month + 1)
+        };
 
-    let slots_per_page = 16;
-    let total_slots = 24 * 4;
-    // let start_slot = page * slots_per_page;
-    // let end_slot = ((page + 1) * slots_per_page).min(total_slots);
-
-    let available_slots: Vec<usize> = (0..total_slots)
-        .filter(|&slot| {
-            let total_minutes = (slot / 4 * 60 + (slot % 4) * 15) as u32;
-            !min_minutes.map(|m| total_minutes < m).unwrap_or(false)
-        })
-        .collect();
-    let total_available = available_slots.len();
-    let total_pages = total_available.div_ceil(slots_per_page);
-    let page = page.min(total_pages - 1);
-    let start_idx = page * slots_per_page;
-    let end_idx = ((page + 1) * slots_per_page).min(total_available);
-
-    for (i, &slot) in available_slots[start_idx..end_idx].iter().enumerate() {
-        let hour = slot / 4;
-        let minute = (slot % 4) * 15;
-
-        let button = InlineKeyboardButton::callback(
-            format!("{:02}:{:02}", hour, minute),
-            format!(
-                "{}{:02}:{:02}",
-                TIME_SELECTION_CALLBACK_PREFIX, hour, minute
-            ),
-        );
-
-        if i % 4 == 0 {
-            rows.push(vec![button]);
-        } else if let Some(last_row) = rows.last_mut() {
-            last_row.push(button);
+        if let Some(msg) = &q.message {
+            bot.edit_message_reply_markup(msg.chat().id, msg.id())
+                .reply_markup(create_calendar_keyboard(
+                    new_year,
+                    new_month,
+                    Some(chrono::Utc::now().date_naive()),
+                ))
+                .await?;
         }
     }
-
-    // Navigation row
-    let mut nav_row = vec![];
-    if page > 0 {
-        nav_row.push(InlineKeyboardButton::callback(
-            "◀️",
-            format!("{}{}", TIME_SELECTION_PAGE_PREFIX, page - 1),
-        ));
-    } else {
-        nav_row.push(InlineKeyboardButton::callback(" ", TIME_SELECTION_IGNORE));
-    }
-    nav_row.push(InlineKeyboardButton::callback(
-        "❌ Odustani",
-        TIME_SELECTION_CANCEL,
-    ));
-    if page + 1 < total_slots {
-        nav_row.push(InlineKeyboardButton::callback(
-            "▶️",
-            format!("{}{}", TIME_SELECTION_PAGE_PREFIX, page + 1),
-        ));
-    } else {
-        nav_row.push(InlineKeyboardButton::callback(" ", TIME_SELECTION_IGNORE));
-    }
-    rows.push(nav_row);
-
-    InlineKeyboardMarkup::new(rows)
+    Ok(())
 }

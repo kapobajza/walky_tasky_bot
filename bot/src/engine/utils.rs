@@ -1,8 +1,9 @@
+use chrono::{NaiveDate, TimeZone};
 use teloxide::{
     Bot,
     payloads::SendMessageSetters,
     prelude::Requester,
-    types::{BotName, ChatId, Message, ParseMode},
+    types::{BotName, ChatId, InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode},
     utils::markdown,
 };
 
@@ -52,4 +53,42 @@ pub fn get_user_mention(msg: &Message) -> Option<String> {
     }
 
     None
+}
+
+pub fn get_current_date_in_bosnia() -> NaiveDate {
+    use chrono_tz::Europe::Sarajevo;
+    let now_in_tz = Sarajevo.from_utc_datetime(&chrono::Utc::now().naive_utc());
+    now_in_tz.date_naive()
+}
+
+pub fn get_current_time_in_bosnia() -> chrono::NaiveTime {
+    use chrono_tz::Europe::Sarajevo;
+    let now_in_tz = Sarajevo.from_utc_datetime(&chrono::Utc::now().naive_utc());
+    now_in_tz.time()
+}
+
+pub static TASK_TYPE_SPECIFIC_TEXT: &str = "određeni";
+pub static TASK_TYPE_RECURRING_TEXT: &str = "ponavljajući";
+
+pub static TASK_TYPE_SPECIFIC_ID: &str = "task_type_specific";
+pub static TASK_TYPE_RECURRING_ID: &str = "task_type_recurring";
+pub static TASK_TYPE_CANCEL_ID: &str = "task_cancel";
+
+pub fn create_task_type_keyboard() -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![
+        vec![
+            InlineKeyboardButton::callback(
+                format!("📅 {}", TASK_TYPE_SPECIFIC_TEXT),
+                TASK_TYPE_SPECIFIC_ID,
+            ),
+            InlineKeyboardButton::callback(
+                format!("🔄 {}", TASK_TYPE_RECURRING_TEXT),
+                TASK_TYPE_RECURRING_ID,
+            ),
+        ],
+        vec![InlineKeyboardButton::callback(
+            "❌ Odustani",
+            TASK_TYPE_CANCEL_ID,
+        )],
+    ])
 }
