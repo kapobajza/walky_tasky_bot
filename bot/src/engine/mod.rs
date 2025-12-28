@@ -1,3 +1,4 @@
+pub mod assigne_mention_handler;
 pub mod bot_mentioned_handler;
 pub mod chat_engine;
 mod command;

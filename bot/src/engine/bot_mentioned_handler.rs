@@ -10,7 +10,7 @@ use teloxide::{
 
 use crate::engine::{
     command::Command,
-    utils::{ChatHandlerResult, get_user_mention, send_chat_message_markdown},
+    utils::{ChatHandlerResult, get_current_user_mention, send_chat_message_markdown},
 };
 
 pub fn is_bot_mentioned(msg: &Message, bot_username: &str) -> bool {
@@ -32,7 +32,7 @@ pub fn is_bot_mentioned(msg: &Message, bot_username: &str) -> bool {
 
 pub async fn bot_mentioned_handler(bot: Bot, msg: Message) -> ChatHandlerResult {
     let user_mention = {
-        if let Some(mention) = get_user_mention(&msg) {
+        if let Some(mention) = get_current_user_mention(&msg) {
             format!(" {}", mention)
         } else {
             Err("Failed to get user mention")?

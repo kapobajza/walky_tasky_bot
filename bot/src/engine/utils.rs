@@ -42,7 +42,7 @@ pub static CALENDAR_DEFAULT_DATE_FORMAT: &str = "%d.%m.%Y";
 
 pub static TIME_DEFAULT_FORMAT: &str = "%H:%M";
 
-pub fn get_user_mention(msg: &Message) -> Option<String> {
+pub fn get_current_user_mention(msg: &Message) -> Option<String> {
     if let Some(user) = &msg.from {
         if let Some(uname) = &user.username {
             return Some(format!("@{}", markdown::escape(uname)));

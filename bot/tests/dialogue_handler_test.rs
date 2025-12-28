@@ -27,8 +27,9 @@ use teloxide_tests::{MockBot, MockCallbackQuery, MockMessageText};
 
 #[tokio::test]
 async fn test_receive_task_name_transitions_to_awaiting_type() {
+    let (scheduler, _, _) = create_test_scheduler_with_storage();
     let message = MockMessageText::new().text("Buy groceries");
-    let handler = build_dialogue_handler();
+    let handler = build_dialogue_handler(scheduler);
 
     let mut bot = MockBot::new(message, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -59,10 +60,8 @@ async fn test_receive_task_name_transitions_to_awaiting_type() {
 
 #[tokio::test]
 async fn test_task_type_specific_transitions_to_date() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
     let callback = MockCallbackQuery::new().data(TASK_TYPE_SPECIFIC_ID);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -93,10 +92,8 @@ async fn test_task_type_specific_transitions_to_date() {
 
 #[tokio::test]
 async fn test_task_type_recurring_transitions_to_start_date() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
     let callback = MockCallbackQuery::new().data(TASK_TYPE_RECURRING_ID);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -127,12 +124,10 @@ async fn test_task_type_recurring_transitions_to_start_date() {
 
 #[tokio::test]
 async fn test_date_selection_transitions_to_time() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
     // Use a future date to avoid filtering issues
     let date_callback = format!("{}01.01.2030", CALENDAR_CALLBACK_SELECT_PREFIX);
     let callback = MockCallbackQuery::new().data(&date_callback);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -161,56 +156,14 @@ async fn test_date_selection_transitions_to_time() {
     );
 }
 
-#[tokio::test]
-async fn test_time_selection_creates_task_and_exits() {
-    let (scheduler, storage, _) = create_test_scheduler_with_storage();
-
-    let time_callback = format!("{}14:30", TIME_SELECTION_CALLBACK_PREFIX);
-    let callback = MockCallbackQuery::new().data(&time_callback);
-    let handler = build_dialogue_callback_handler(scheduler);
-
-    let mut bot = MockBot::new(callback, handler);
-    bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
-    bot.set_state(TaskState::AwaitingSpecificTime {
-        task_name: "Test Task".to_string(),
-        date: "01.01.2030".to_string(),
-    })
-    .await;
-    bot.dispatch().await;
-
-    let responses = bot.get_responses();
-    let sent_messages = &responses.sent_messages;
-
-    assert!(
-        !sent_messages.is_empty(),
-        "Bot should have sent a confirmation message"
-    );
-
-    let last_message = sent_messages.last().unwrap();
-    let text = last_message.text().unwrap_or("");
-
-    // Verify confirmation message
-    assert!(
-        text.contains("zakazan") || text.contains("Test Task"),
-        "Response should confirm the task was scheduled. Got: {}",
-        text
-    );
-
-    // Verify task was added to storage
-    let tasks = storage.get_all_tasks().await.unwrap();
-    assert_eq!(tasks.len(), 1, "One task should have been created");
-}
-
 // =============================================================================
 // Cancel Flow Tests
 // =============================================================================
 
 #[tokio::test]
 async fn test_cancel_from_task_type_exits() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
     let callback = MockCallbackQuery::new().data(TASK_TYPE_CANCEL_ID);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -240,10 +193,8 @@ async fn test_cancel_from_task_type_exits() {
 
 #[tokio::test]
 async fn test_cancel_from_calendar_exits() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
     let callback = MockCallbackQuery::new().data(CALENDAR_CALLBACK_CANCEL);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -273,10 +224,8 @@ async fn test_cancel_from_calendar_exits() {
 
 #[tokio::test]
 async fn test_cancel_from_time_selection_exits() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
     let callback = MockCallbackQuery::new().data(TIME_SELECTION_CANCEL);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -311,12 +260,10 @@ async fn test_cancel_from_time_selection_exits() {
 
 #[tokio::test]
 async fn test_calendar_prev_month_updates_keyboard() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
     // Navigate from December 2025 to November 2025
     let nav_callback = format!("{}2025_12", CALENDAR_CALLBACK_PREV_PREFIX);
     let callback = MockCallbackQuery::new().data(&nav_callback);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -338,12 +285,10 @@ async fn test_calendar_prev_month_updates_keyboard() {
 
 #[tokio::test]
 async fn test_calendar_next_month_updates_keyboard() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
     // Navigate from December 2025 to January 2026
     let nav_callback = format!("{}2025_12", CALENDAR_CALLBACK_NEXT_PREFIX);
     let callback = MockCallbackQuery::new().data(&nav_callback);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -368,11 +313,9 @@ async fn test_calendar_next_month_updates_keyboard() {
 
 #[tokio::test]
 async fn test_recurring_start_date_transitions_to_end_date() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
     let date_callback = format!("{}01.01.2030", CALENDAR_CALLBACK_SELECT_PREFIX);
     let callback = MockCallbackQuery::new().data(&date_callback);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -402,11 +345,9 @@ async fn test_recurring_start_date_transitions_to_end_date() {
 
 #[tokio::test]
 async fn test_recurring_end_date_transitions_to_time() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
     let date_callback = format!("{}15.01.2030", CALENDAR_CALLBACK_SELECT_PREFIX);
     let callback = MockCallbackQuery::new().data(&date_callback);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -437,11 +378,9 @@ async fn test_recurring_end_date_transitions_to_time() {
 
 #[tokio::test]
 async fn test_recurring_time_selection_sends_confirmation() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
     let time_callback = format!("{}09:00", TIME_SELECTION_CALLBACK_PREFIX);
     let callback = MockCallbackQuery::new().data(&time_callback);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -478,11 +417,11 @@ async fn test_recurring_time_selection_sends_confirmation() {
 
 #[tokio::test]
 async fn test_callback_in_wrong_state_is_handled() {
-    let (scheduler, storage, _) = create_test_scheduler_with_storage();
+    let (_scheduler, storage, _) = create_test_scheduler_with_storage();
 
     // Try to select a task type when in Idle state (wrong state)
     let callback = MockCallbackQuery::new().data(TASK_TYPE_SPECIFIC_ID);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -499,8 +438,9 @@ async fn test_callback_in_wrong_state_is_handled() {
 
 #[tokio::test]
 async fn test_task_name_with_special_characters() {
+    let (scheduler, _, _) = create_test_scheduler_with_storage();
     let message = MockMessageText::new().text("Buy groceries 🛒 @store #urgent");
-    let handler = build_dialogue_handler();
+    let handler = build_dialogue_handler(scheduler);
 
     let mut bot = MockBot::new(message, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -523,11 +463,9 @@ async fn test_task_name_with_special_characters() {
 
 #[tokio::test]
 async fn test_date_selection_preserves_task_name_in_state() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
     let date_callback = format!("{}15.06.2030", CALENDAR_CALLBACK_SELECT_PREFIX);
     let callback = MockCallbackQuery::new().data(&date_callback);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -554,12 +492,10 @@ async fn test_date_selection_preserves_task_name_in_state() {
 
 #[tokio::test]
 async fn test_recurring_end_date_after_start_date() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
     // End date is after start date
     let date_callback = format!("{}20.01.2030", CALENDAR_CALLBACK_SELECT_PREFIX);
     let callback = MockCallbackQuery::new().data(&date_callback);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -590,53 +526,10 @@ async fn test_recurring_end_date_after_start_date() {
 // =============================================================================
 
 #[tokio::test]
-async fn test_time_selection_task_has_correct_action() {
-    let (scheduler, storage, _) = create_test_scheduler_with_storage();
-
-    let time_callback = format!("{}10:00", TIME_SELECTION_CALLBACK_PREFIX);
-    let callback = MockCallbackQuery::new().data(&time_callback);
-    let handler = build_dialogue_callback_handler(scheduler);
-
-    let mut bot = MockBot::new(callback, handler);
-    bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
-    bot.set_state(TaskState::AwaitingSpecificTime {
-        task_name: "Doctor Appointment".to_string(),
-        date: "15.03.2030".to_string(),
-    })
-    .await;
-    bot.dispatch().await;
-
-    // Verify task was created with correct action
-    let tasks = storage.get_all_tasks().await.unwrap();
-    assert_eq!(tasks.len(), 1, "One task should be created");
-
-    let task = &tasks[0];
-    assert!(task.action.is_some(), "Task should have an action");
-
-    if let Some(scheduler::task::action::TaskAction::SendBotMessage { message, .. }) = &task.action
-    {
-        assert!(
-            message.contains("Doctor Appointment"),
-            "Task message should contain task name. Got: {}",
-            message
-        );
-        assert!(
-            message.contains("Podsjetnik"),
-            "Task message should be a reminder. Got: {}",
-            message
-        );
-    } else {
-        panic!("Task action should be SendBotMessage");
-    }
-}
-
-#[tokio::test]
 async fn test_time_selection_confirmation_contains_details() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
     let time_callback = format!("{}16:45", TIME_SELECTION_CALLBACK_PREFIX);
     let callback = MockCallbackQuery::new().data(&time_callback);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
@@ -653,75 +546,20 @@ async fn test_time_selection_confirmation_contains_details() {
 
     // Verify confirmation contains task name, date, and time
     assert!(
-        text.contains("Team Meeting"),
+        text.contains("Označi korisnika kojem želiš dodijeliti zadatak"),
         "Confirmation should contain task name. Got: {}",
-        text
-    );
-    assert!(
-        text.contains("25.12.2030"),
-        "Confirmation should contain date. Got: {}",
-        text
-    );
-    assert!(
-        text.contains("16:45"),
-        "Confirmation should contain time. Got: {}",
-        text
-    );
-}
-
-#[tokio::test]
-async fn test_recurring_time_confirmation_contains_all_dates() {
-    let (scheduler, _, _) = create_test_scheduler_with_storage();
-
-    let time_callback = format!("{}08:30", TIME_SELECTION_CALLBACK_PREFIX);
-    let callback = MockCallbackQuery::new().data(&time_callback);
-    let handler = build_dialogue_callback_handler(scheduler);
-
-    let mut bot = MockBot::new(callback, handler);
-    bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
-    bot.set_state(TaskState::AwaitingRecurringTime {
-        task_name: "Morning Exercise".to_string(),
-        start_date: "01.02.2030".to_string(),
-        end_date: "28.02.2030".to_string(),
-    })
-    .await;
-    bot.dispatch().await;
-
-    let responses = bot.get_responses();
-    let sent_messages = &responses.sent_messages;
-    let text = sent_messages.last().unwrap().text().unwrap_or("");
-
-    // Verify confirmation contains task name, start date, end date, and time
-    assert!(
-        text.contains("Morning Exercise"),
-        "Confirmation should contain task name. Got: {}",
-        text
-    );
-    assert!(
-        text.contains("01.02.2030"),
-        "Confirmation should contain start date. Got: {}",
-        text
-    );
-    assert!(
-        text.contains("28.02.2030"),
-        "Confirmation should contain end date. Got: {}",
-        text
-    );
-    assert!(
-        text.contains("08:30"),
-        "Confirmation should contain time. Got: {}",
         text
     );
 }
 
 #[tokio::test]
 async fn test_time_selection_in_wrong_state_does_nothing() {
-    let (scheduler, storage, _) = create_test_scheduler_with_storage();
+    let (_scheduler, storage, _) = create_test_scheduler_with_storage();
 
     // Try time selection when in AwaitingTaskType state (wrong state)
     let time_callback = format!("{}12:00", TIME_SELECTION_CALLBACK_PREFIX);
     let callback = MockCallbackQuery::new().data(&time_callback);
-    let handler = build_dialogue_callback_handler(scheduler);
+    let handler = build_dialogue_callback_handler();
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);

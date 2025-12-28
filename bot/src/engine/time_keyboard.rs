@@ -1,6 +1,4 @@
 use chrono::{NaiveTime, Timelike};
-use chrono_tz::Europe::Sarajevo;
-use scheduler::task::{action::TaskAction, default::Task, task_scheduler::TaskScheduler};
 use teloxide::{
     Bot,
     prelude::Requester,
@@ -9,7 +7,7 @@ use teloxide::{
 
 use crate::engine::{
     dialogue_handler::{TaskDialogue, TaskState},
-    utils::{CALENDAR_DEFAULT_DATE_FORMAT, ChatHandlerResult, TIME_DEFAULT_FORMAT},
+    utils::ChatHandlerResult,
 };
 
 pub static TIME_SELECTION_CALLBACK_PREFIX: &str = "time_select_";
@@ -26,8 +24,6 @@ pub fn create_time_selection_keyboard(
 
     let slots_per_page = 16;
     let total_slots = 24 * 4;
-    // let start_slot = page * slots_per_page;
-    // let end_slot = ((page + 1) * slots_per_page).min(total_slots);
 
     let available_slots: Vec<usize> = (0..total_slots)
         .filter(|&slot| {
@@ -93,37 +89,21 @@ pub async fn handle_keyboard_time_selection(
     dialogue: TaskDialogue,
     state: TaskState,
     time_str: &str,
-    scheduler: &TaskScheduler,
 ) -> ChatHandlerResult {
     match state {
         TaskState::AwaitingSpecificTime { task_name, date } => {
-            let next_run = chrono::NaiveDateTime::parse_from_str(
-                &format!("{} {}", date, time_str),
-                &format!("{} {}", CALENDAR_DEFAULT_DATE_FORMAT, TIME_DEFAULT_FORMAT),
-            )?;
-            let next_run = next_run
-                .and_local_timezone(Sarajevo)
-                .single()
-                .ok_or("Failed to convert to timezone-aware datetime")?
-                .with_timezone(&chrono::Utc);
-
-            scheduler
-                .add_task(Task::new_with_datetime(
-                    next_run,
-                    TaskAction::SendBotMessage {
-                        chat_id: chat_id.0,
-                        message: format!("Podsjetnik za zadatak: {}", task_name),
-                    },
-                ))
-                .await?;
             bot.send_message(
                 chat_id,
-                format!(
-                    "Zadatak \"{}\" je zakazan {} u {}.",
-                    task_name, date, time_str
-                ),
+                "Označi korisnika kojem želiš dodijeliti zadatak, brate (npr. @korisnik):",
             )
             .await?;
+            dialogue
+                .update(TaskState::AwaitingAssigneeMention {
+                    task_name,
+                    date,
+                    time: time_str.to_string(),
+                })
+                .await?;
         }
         TaskState::AwaitingRecurringTime {
             task_name,
@@ -141,8 +121,6 @@ pub async fn handle_keyboard_time_selection(
         }
         _ => {}
     }
-
-    dialogue.exit().await?;
 
     Ok(())
 }

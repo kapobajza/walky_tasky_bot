@@ -36,8 +36,8 @@ impl ChatEngine {
 
         let command_handler = build_command_handler();
         let mention_handler = build_bot_mentioned_handler(bot_username);
-        let dialogue_handler = build_dialogue_handler();
-        let dialogue_callback_handler = build_dialogue_callback_handler(self.scheduler.clone());
+        let dialogue_handler = build_dialogue_handler(self.scheduler.clone());
+        let dialogue_callback_handler = build_dialogue_callback_handler();
 
         let handler = dptree::entry()
             .branch(command_handler)

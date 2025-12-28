@@ -10,6 +10,7 @@ use teloxide::{
 };
 
 use crate::engine::{
+    assigne_mention_handler::handle_assigne_mention_callback,
     date_keyboard::{
         CALENDAR_CALLBACK_CANCEL, CALENDAR_CALLBACK_NEXT_PREFIX, CALENDAR_CALLBACK_PREV_PREFIX,
         CALENDAR_CALLBACK_SELECT_PREFIX, create_calendar_keyboard,
@@ -53,44 +54,61 @@ pub enum TaskState {
         start_date: String,
         end_date: String,
     },
+    AwaitingAssigneeMention {
+        task_name: String,
+        date: String,
+        time: String,
+    },
 }
 
 pub type TaskDialogue = Dialogue<TaskState, InMemStorage<TaskState>>;
 
-pub fn build_dialogue_handler() -> Handler<
-    'static,
-    Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>,
-    DpHandlerDescription,
-> {
-    Update::filter_message()
-        .enter_dialogue::<Message, InMemStorage<TaskState>, TaskState>()
-        .branch(dptree::case![TaskState::AwaitingTaskName].endpoint(receive_task_name))
-        .branch(
-            dptree::case![TaskState::AwaitingSpecificDate { task_name }]
-                .endpoint(receive_specific_date_text),
-        )
-        .branch(
-            dptree::case![TaskState::AwaitingRecurringStartDate { task_name }]
-                .endpoint(receive_recurring_start_text),
-        )
-}
-
-pub fn build_dialogue_callback_handler(
+pub fn build_dialogue_handler(
     scheduler: TaskScheduler,
 ) -> Handler<
     'static,
     Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>,
     DpHandlerDescription,
 > {
-    Update::filter_callback_query()
-        .enter_dialogue::<CallbackQuery, InMemStorage<TaskState>, TaskState>()
-        .endpoint(move |bot: Bot, q: CallbackQuery, dialogue: TaskDialogue| {
-            let scheduler = scheduler.clone();
-            async move { handle_callback(bot, q, dialogue, &scheduler).await }
-        })
+    Update::filter_message()
+        .enter_dialogue::<Message, InMemStorage<TaskState>, TaskState>()
+        .branch(dptree::case![TaskState::AwaitingTaskName].endpoint(handle_task_name_callback))
+        .branch(
+            dptree::case![TaskState::AwaitingSpecificDate { task_name }]
+                .endpoint(handle_specific_date_text_callback),
+        )
+        .branch(
+            dptree::case![TaskState::AwaitingRecurringStartDate { task_name }]
+                .endpoint(handle_recurring_start_text_callback),
+        )
+        .branch(
+            dptree::case![TaskState::AwaitingAssigneeMention {
+                task_name,
+                date,
+                time
+            }]
+            .endpoint(move |bot, msg, dialogue| {
+                let scheduler = scheduler.clone();
+                async move { handle_assigne_mention_callback(bot, msg, dialogue, &scheduler).await }
+            }),
+        )
 }
 
-async fn receive_task_name(bot: Bot, msg: Message, dialogue: TaskDialogue) -> ChatHandlerResult {
+pub fn build_dialogue_callback_handler() -> Handler<
+    'static,
+    Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>,
+    DpHandlerDescription,
+> {
+    Update::filter_callback_query()
+        .enter_dialogue::<CallbackQuery, InMemStorage<TaskState>, TaskState>()
+        .endpoint(handle_dialogue_callback)
+}
+
+async fn handle_task_name_callback(
+    bot: Bot,
+    msg: Message,
+    dialogue: TaskDialogue,
+) -> ChatHandlerResult {
     if let Some(task_name) = msg.text() {
         bot.send_message(msg.chat.id, "Da li želiš da zakažeš zadatak na određeni datum i vrijeme ili kao ponavljajući zadatak? Određeni se izvršava samo jednom, dok se ponavljajući izvršava u određenim intervalima.")
             .reply_markup(create_task_type_keyboard())
@@ -106,11 +124,10 @@ async fn receive_task_name(bot: Bot, msg: Message, dialogue: TaskDialogue) -> Ch
     Ok(())
 }
 
-async fn handle_callback(
+async fn handle_dialogue_callback(
     bot: Bot,
     q: CallbackQuery,
     dialogue: TaskDialogue,
-    scheduler: &TaskScheduler,
 ) -> ChatHandlerResult {
     if let Some(data) = &q.data {
         let chat_id = q
@@ -159,15 +176,8 @@ async fn handle_callback(
             s if s.starts_with(TIME_SELECTION_CALLBACK_PREFIX) => {
                 let time_str = s.trim_start_matches(TIME_SELECTION_CALLBACK_PREFIX);
                 remove_keyboard_buttons(&bot, &q).await;
-                handle_keyboard_time_selection(
-                    bot.clone(),
-                    chat_id,
-                    dialogue,
-                    state,
-                    time_str,
-                    scheduler,
-                )
-                .await?;
+                handle_keyboard_time_selection(bot.clone(), chat_id, dialogue, state, time_str)
+                    .await?;
             }
             s if s.starts_with(CALENDAR_CALLBACK_PREV_PREFIX)
                 || s.starts_with(CALENDAR_CALLBACK_NEXT_PREFIX) =>
@@ -229,7 +239,7 @@ async fn handle_callback(
     Ok(())
 }
 
-async fn receive_specific_date_text(
+async fn handle_specific_date_text_callback(
     _bot: Bot,
     _msg: Message,
     _dialogue: TaskDialogue,
@@ -239,7 +249,7 @@ async fn receive_specific_date_text(
     Ok(())
 }
 
-async fn receive_recurring_start_text(
+async fn handle_recurring_start_text_callback(
     _bot: Bot,
     _msg: Message,
     _dialogue: TaskDialogue,

@@ -1,10 +1,14 @@
+mod common;
+
 use bot::engine::{
     bot_mentioned_handler::{build_bot_mentioned_handler, is_bot_mentioned},
     command_handler::build_command_handler,
-    dialogue_handler::TaskState,
-    utils::get_user_mention,
+    dialogue_handler::{TaskState, build_dialogue_handler},
+    utils::get_current_user_mention,
 };
+use common::create_test_scheduler_with_storage;
 use dptree::deps;
+use scheduler::{storage::base_storage::Storage, task::action::TaskAction};
 use teloxide::{
     dispatching::dialogue::InMemStorage,
     types::{MessageEntity, MessageEntityKind, User, UserId},
@@ -85,7 +89,7 @@ fn test_get_user_mention_with_username() {
         .entities(vec![create_mention_entity(6, 5)])
         .build();
 
-    assert!(get_user_mention(&msg) == Some(format!("@{}", "user")));
+    assert!(get_current_user_mention(&msg) == Some(format!("@{}", "user")));
 }
 
 #[test]
@@ -106,7 +110,10 @@ fn test_get_user_mention_without_username() {
         })
         .build();
 
-    assert!(get_user_mention(&msg) == Some(format!("[{}](tg://user?id={})", first_name, user_id)));
+    assert!(
+        get_current_user_mention(&msg)
+            == Some(format!("[{}](tg://user?id={})", first_name, user_id))
+    );
 }
 
 #[test]
@@ -128,7 +135,8 @@ fn test_get_user_mention_escapes_special_characters() {
         .build();
 
     assert!(
-        get_user_mention(&msg) == Some(format!("[{}](tg://user?id={})", "John\\_Doe\\*", user_id))
+        get_current_user_mention(&msg)
+            == Some(format!("[{}](tg://user?id={})", "John\\_Doe\\*", user_id))
     );
 }
 
@@ -248,4 +256,160 @@ async fn test_bot_mention_responds_with_command_list() {
         last_message_text.contains("/novi\\_zadatak"),
         "Bot mention response does not contain /novi_zadatak command"
     );
+}
+
+#[tokio::test]
+async fn test_assigne_mention_task_has_correct_action() {
+    let (scheduler, storage, _) = create_test_scheduler_with_storage();
+
+    let message = MockMessageText::new()
+        .text("Hello there @user")
+        .entities(vec![create_mention_entity(12, 5)]);
+    let handler = build_dialogue_handler(scheduler);
+
+    let mut bot = MockBot::new(message, handler);
+    bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
+    bot.set_state(TaskState::AwaitingAssigneeMention {
+        task_name: "Doctor Appointment".to_string(),
+        date: "15.03.2030".to_string(),
+        time: "10:00".to_string(),
+    })
+    .await;
+    bot.dispatch().await;
+
+    // Verify task was created with correct action
+    let tasks = storage.get_all_tasks().await.unwrap();
+    assert_eq!(tasks.len(), 1, "One task should be created");
+
+    let task = &tasks[0];
+    assert!(task.action.is_some(), "Task should have an action");
+
+    if let Some(TaskAction::SendBotMessage { message, .. }) = &task.action {
+        assert!(
+            message.contains("Doctor Appointment"),
+            "Task message should contain task name. Got: {}",
+            message
+        );
+        assert!(
+            message.contains("Podsjetnik"),
+            "Task message should be a reminder. Got: {}",
+            message
+        );
+    } else {
+        panic!("Task action should be SendBotMessage");
+    }
+}
+
+#[tokio::test]
+async fn test_assignee_mention_with_tg_link_has_correct_action() {
+    let (scheduler, storage, _) = create_test_scheduler_with_storage();
+
+    let message = MockMessageText::new()
+        .text("Hello there [User](tg://user?id=12345)")
+        .entities(vec![MessageEntity {
+            offset: 12,
+            length: 26,
+            kind: MessageEntityKind::TextMention {
+                user: User {
+                    id: UserId(12345),
+                    is_bot: false,
+                    first_name: "User".to_string(),
+                    last_name: None,
+                    username: None,
+                    language_code: Some("en".to_string()),
+                    is_premium: false,
+                    added_to_attachment_menu: false,
+                },
+            },
+        }]);
+    let handler = build_dialogue_handler(scheduler);
+
+    let mut bot = MockBot::new(message, handler);
+    bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
+    bot.set_state(TaskState::AwaitingAssigneeMention {
+        task_name: "Meeting".to_string(),
+        date: "20.04.2030".to_string(),
+        time: "15:30".to_string(),
+    })
+    .await;
+    bot.dispatch().await;
+
+    // Verify task was created with correct action
+    let tasks = storage.get_all_tasks().await.unwrap();
+    assert_eq!(tasks.len(), 1, "One task should be created");
+
+    let task = &tasks[0];
+    assert!(task.action.is_some(), "Task should have an action");
+
+    if let Some(TaskAction::SendBotMessage { message, .. }) = &task.action {
+        assert!(
+            message.contains("Meeting"),
+            "Task message should contain task name. Got: {}",
+            message
+        );
+        assert!(
+            message.contains("Podsjetnik"),
+            "Task message should be a reminder. Got: {}",
+            message
+        );
+    } else {
+        panic!("Task action should be SendBotMessage");
+    }
+}
+
+#[tokio::test]
+async fn test_assignee_mention_with_tg_handles_special_chars() {
+    let (scheduler, storage, _) = create_test_scheduler_with_storage();
+
+    let message = MockMessageText::new()
+        .text("Hello there [John_Doe*](tg://user?id=67890)")
+        .entities(vec![MessageEntity {
+            offset: 12,
+            length: 31,
+            kind: MessageEntityKind::TextMention {
+                user: User {
+                    id: UserId(67890),
+                    is_bot: false,
+                    first_name: "John_Doe*".to_string(),
+                    last_name: None,
+                    username: None,
+                    language_code: Some("en".to_string()),
+                    is_premium: false,
+                    added_to_attachment_menu: false,
+                },
+            },
+        }]);
+    let handler = build_dialogue_handler(scheduler);
+
+    let mut bot = MockBot::new(message, handler);
+    bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
+    bot.set_state(TaskState::AwaitingAssigneeMention {
+        task_name: "Code.Review".to_string(),
+        date: "25.05.2030".to_string(),
+        time: "09:00".to_string(),
+    })
+    .await;
+    bot.dispatch().await;
+
+    // Verify task was created with correct action
+    let tasks = storage.get_all_tasks().await.unwrap();
+    assert_eq!(tasks.len(), 1, "One task should be created");
+
+    let task = &tasks[0];
+    assert!(task.action.is_some(), "Task should have an action");
+
+    if let Some(TaskAction::SendBotMessage { message, .. }) = &task.action {
+        assert!(
+            message.contains("Code.Review"),
+            "Task message should contain task name. Got: {}",
+            message
+        );
+        assert!(
+            message.contains("Podsjetnik"),
+            "Task message should be a reminder. Got: {}",
+            message
+        );
+    } else {
+        panic!("Task action should be SendBotMessage");
+    }
 }
