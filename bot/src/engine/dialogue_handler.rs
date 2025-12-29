@@ -42,14 +42,14 @@ pub enum TaskState {
         task_name: String,
         date: String,
     },
-    AwaitingRecurringStartDate {
+    AwaitingRangeStartDate {
         task_name: String,
     },
-    AwaitingRecurringEndDate {
+    AwaitingRangeEndDate {
         task_name: String,
         start_date: String,
     },
-    AwaitingRecurringTime {
+    AwaitingRangeTime {
         task_name: String,
         start_date: String,
         end_date: String,
@@ -57,6 +57,7 @@ pub enum TaskState {
     AwaitingAssigneeMention {
         task_name: String,
         date: String,
+        end_date: Option<String>,
         time: String,
     },
 }
@@ -78,14 +79,15 @@ pub fn build_dialogue_handler(
                 .endpoint(handle_specific_date_text_callback),
         )
         .branch(
-            dptree::case![TaskState::AwaitingRecurringStartDate { task_name }]
+            dptree::case![TaskState::AwaitingRangeStartDate { task_name }]
                 .endpoint(handle_recurring_start_text_callback),
         )
         .branch(
             dptree::case![TaskState::AwaitingAssigneeMention {
                 task_name,
                 date,
-                time
+                time,
+                end_date,
             }]
             .endpoint(move |bot, msg, dialogue| {
                 let scheduler = scheduler.clone();
@@ -160,7 +162,7 @@ async fn handle_dialogue_callback(
                         .reply_markup(create_calendar_keyboard(now.year(), now.month(), Some(now)))
                         .await?;
                     dialogue
-                        .update(TaskState::AwaitingRecurringStartDate { task_name })
+                        .update(TaskState::AwaitingRangeStartDate { task_name })
                         .await?;
                 }
             }
@@ -207,7 +209,7 @@ async fn handle_dialogue_callback(
                             TaskState::AwaitingSpecificTime { date, .. } => {
                                 date_str = Some(date);
                             }
-                            TaskState::AwaitingRecurringTime { end_date, .. } => {
+                            TaskState::AwaitingRangeTime { end_date, .. } => {
                                 date_str = Some(end_date);
                             }
                             _ => {}

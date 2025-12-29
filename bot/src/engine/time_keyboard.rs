@@ -90,34 +90,36 @@ pub async fn handle_keyboard_time_selection(
     state: TaskState,
     time_str: &str,
 ) -> ChatHandlerResult {
+    bot.send_message(
+        chat_id,
+        "Označi korisnika kojem želiš dodijeliti zadatak, brate (npr. @korisnik):",
+    )
+    .await?;
+
     match state {
         TaskState::AwaitingSpecificTime { task_name, date } => {
-            bot.send_message(
-                chat_id,
-                "Označi korisnika kojem želiš dodijeliti zadatak, brate (npr. @korisnik):",
-            )
-            .await?;
             dialogue
                 .update(TaskState::AwaitingAssigneeMention {
                     task_name,
                     date,
                     time: time_str.to_string(),
+                    end_date: None,
                 })
                 .await?;
         }
-        TaskState::AwaitingRecurringTime {
+        TaskState::AwaitingRangeTime {
             task_name,
             start_date,
             end_date,
         } => {
-            bot.send_message(
-                chat_id,
-                format!(
-                    "Hvala! Zakazujem ponavljajući zadatak \"{}\" od {} do {} u {} svaki dan.",
-                    task_name, start_date, end_date, time_str
-                ),
-            )
-            .await?;
+            dialogue
+                .update(TaskState::AwaitingAssigneeMention {
+                    task_name,
+                    date: start_date,
+                    time: time_str.to_string(),
+                    end_date: Some(end_date),
+                })
+                .await?;
         }
         _ => {}
     }

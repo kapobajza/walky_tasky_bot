@@ -319,7 +319,7 @@ async fn test_recurring_start_date_transitions_to_end_date() {
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
-    bot.set_state(TaskState::AwaitingRecurringStartDate {
+    bot.set_state(TaskState::AwaitingRangeStartDate {
         task_name: "Recurring Task".to_string(),
     })
     .await;
@@ -351,7 +351,7 @@ async fn test_recurring_end_date_transitions_to_time() {
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
-    bot.set_state(TaskState::AwaitingRecurringEndDate {
+    bot.set_state(TaskState::AwaitingRangeEndDate {
         task_name: "Recurring Task".to_string(),
         start_date: "01.01.2030".to_string(),
     })
@@ -372,41 +372,6 @@ async fn test_recurring_end_date_transitions_to_time() {
     assert!(
         text.contains("vrijeme"),
         "Response should ask for time. Got: {}",
-        text
-    );
-}
-
-#[tokio::test]
-async fn test_recurring_time_selection_sends_confirmation() {
-    let time_callback = format!("{}09:00", TIME_SELECTION_CALLBACK_PREFIX);
-    let callback = MockCallbackQuery::new().data(&time_callback);
-    let handler = build_dialogue_callback_handler();
-
-    let mut bot = MockBot::new(callback, handler);
-    bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
-    bot.set_state(TaskState::AwaitingRecurringTime {
-        task_name: "Recurring Task".to_string(),
-        start_date: "01.01.2030".to_string(),
-        end_date: "15.01.2030".to_string(),
-    })
-    .await;
-    bot.dispatch().await;
-
-    let responses = bot.get_responses();
-    let sent_messages = &responses.sent_messages;
-
-    assert!(
-        !sent_messages.is_empty(),
-        "Bot should have sent a confirmation message"
-    );
-
-    let last_message = sent_messages.last().unwrap();
-    let text = last_message.text().unwrap_or("");
-
-    // Verify recurring task confirmation
-    assert!(
-        text.contains("ponavljajući") || text.contains("Recurring Task"),
-        "Response should confirm the recurring task. Got: {}",
         text
     );
 }
@@ -499,7 +464,7 @@ async fn test_recurring_end_date_after_start_date() {
 
     let mut bot = MockBot::new(callback, handler);
     bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
-    bot.set_state(TaskState::AwaitingRecurringEndDate {
+    bot.set_state(TaskState::AwaitingRangeEndDate {
         task_name: "Daily Standup".to_string(),
         start_date: "01.01.2030".to_string(),
     })

@@ -172,7 +172,7 @@ pub async fn handle_keyboard_date_selection(
                 })
                 .await?;
         }
-        TaskState::AwaitingRecurringStartDate { task_name } => {
+        TaskState::AwaitingRangeStartDate { task_name } => {
             let now = get_current_date_in_bosnia();
             let start_date = date.format(CALENDAR_DEFAULT_DATE_FORMAT).to_string();
 
@@ -180,13 +180,13 @@ pub async fn handle_keyboard_date_selection(
                 .reply_markup(create_calendar_keyboard(now.year(), now.month(), Some(now)))
                 .await?;
             dialogue
-                .update(TaskState::AwaitingRecurringEndDate {
+                .update(TaskState::AwaitingRangeEndDate {
                     task_name,
                     start_date,
                 })
                 .await?;
         }
-        TaskState::AwaitingRecurringEndDate {
+        TaskState::AwaitingRangeEndDate {
             task_name,
             start_date,
         } => {
@@ -194,7 +194,7 @@ pub async fn handle_keyboard_date_selection(
                 .reply_markup(create_time_selection_keyboard(min_time, 0))
                 .await?;
             dialogue
-                .update(TaskState::AwaitingRecurringTime {
+                .update(TaskState::AwaitingRangeTime {
                     task_name,
                     start_date,
                     end_date: date.format(CALENDAR_DEFAULT_DATE_FORMAT).to_string(),

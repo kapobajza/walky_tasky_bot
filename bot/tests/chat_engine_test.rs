@@ -273,6 +273,7 @@ async fn test_assigne_mention_task_has_correct_action() {
         task_name: "Doctor Appointment".to_string(),
         date: "15.03.2030".to_string(),
         time: "10:00".to_string(),
+        end_date: None,
     })
     .await;
     bot.dispatch().await;
@@ -330,6 +331,7 @@ async fn test_assignee_mention_with_tg_link_has_correct_action() {
         task_name: "Meeting".to_string(),
         date: "20.04.2030".to_string(),
         time: "15:30".to_string(),
+        end_date: None,
     })
     .await;
     bot.dispatch().await;
@@ -387,6 +389,7 @@ async fn test_assignee_mention_with_tg_handles_special_chars() {
         task_name: "Code.Review".to_string(),
         date: "25.05.2030".to_string(),
         time: "09:00".to_string(),
+        end_date: None,
     })
     .await;
     bot.dispatch().await;
@@ -406,6 +409,79 @@ async fn test_assignee_mention_with_tg_handles_special_chars() {
         );
         assert!(
             message.contains("John\\_Doe\\*"),
+            "Task message should contain mentioned user. Got: {}",
+            message
+        );
+    } else {
+        panic!("Task action should be SendBotMessage");
+    }
+}
+
+#[tokio::test]
+async fn test_assignee_mention_without_mention_asks_for_mention() {
+    let (scheduler, _storage, _) = create_test_scheduler_with_storage();
+
+    let message = MockMessageText::new().text("Hello there no mention here");
+    let handler = build_dialogue_handler(scheduler);
+
+    let mut bot = MockBot::new(message, handler);
+    bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
+    bot.set_state(TaskState::AwaitingAssigneeMention {
+        task_name: "NoMentionTask".to_string(),
+        date: "30.06.2030".to_string(),
+        time: "12:00".to_string(),
+        end_date: None,
+    })
+    .await;
+    bot.dispatch().await;
+
+    let responses = bot.get_responses();
+    let sent_messages = responses.sent_messages;
+
+    assert!(!sent_messages.is_empty());
+
+    let last_message_text = sent_messages.last().unwrap().text().unwrap();
+    assert!(
+        last_message_text.contains("Nisi spomenuo korisnika"),
+        "Response should ask for a mention when none is provided"
+    );
+}
+
+#[tokio::test]
+async fn test_assignee_mention_with_datetime_range() {
+    let (scheduler, storage, _) = create_test_scheduler_with_storage();
+
+    let message = MockMessageText::new()
+        .text("Hello there @user")
+        .entities(vec![create_mention_entity(12, 5)]);
+    let handler = build_dialogue_handler(scheduler);
+
+    let mut bot = MockBot::new(message, handler);
+    bot.dependencies(deps![InMemStorage::<TaskState>::new()]);
+    bot.set_state(TaskState::AwaitingAssigneeMention {
+        task_name: "Conference".to_string(),
+        date: "01.07.2030".to_string(),
+        time: "09:00".to_string(),
+        end_date: Some("03.07.2030".to_string()),
+    })
+    .await;
+    bot.dispatch().await;
+
+    // Verify task was created with correct action
+    let tasks = storage.get_all_tasks().await.unwrap();
+    assert_eq!(tasks.len(), 1, "One task should be created");
+
+    let task = &tasks[0];
+    assert!(task.action.is_some(), "Task should have an action");
+
+    if let Some(TaskAction::SendBotMessage { message, .. }) = &task.action {
+        assert!(
+            message.contains("Conference"),
+            "Task message should contain task name. Got: {}",
+            message
+        );
+        assert!(
+            message.contains("user"),
             "Task message should contain mentioned user. Got: {}",
             message
         );
