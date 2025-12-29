@@ -175,9 +175,14 @@ pub async fn handle_keyboard_date_selection(
         TaskState::AwaitingRangeStartDate { task_name } => {
             let now = get_current_date_in_bosnia();
             let start_date = date.format(CALENDAR_DEFAULT_DATE_FORMAT).to_string();
+            let date_plus_one_day = date + chrono::Duration::days(1);
 
             bot.send_message(chat_id, "Odaberi završni datum za ponavljajući zadatak:")
-                .reply_markup(create_calendar_keyboard(now.year(), now.month(), Some(now)))
+                .reply_markup(create_calendar_keyboard(
+                    now.year(),
+                    now.month(),
+                    Some(date_plus_one_day),
+                ))
                 .await?;
             dialogue
                 .update(TaskState::AwaitingRangeEndDate {
