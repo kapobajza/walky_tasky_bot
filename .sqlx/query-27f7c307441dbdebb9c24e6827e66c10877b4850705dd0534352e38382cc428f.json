@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, schedule_type as \"schedule_type: i16\", last_run, next_run, retry_count, max_retries, retry_delay, schedule, enabled, action\n            FROM tasks WHERE id = $1",
+  "query": "SELECT id, schedule_type as \"schedule_type: i16\", last_run, next_run, retry_count, max_retries, retry_delay, enabled, action, start_date, end_date\n            FROM tasks WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -40,18 +40,23 @@
       },
       {
         "ordinal": 7,
-        "name": "schedule",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 8,
         "name": "enabled",
         "type_info": "Bool"
       },
       {
-        "ordinal": 9,
+        "ordinal": 8,
         "name": "action",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "start_date",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "end_date",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -67,10 +72,11 @@
       false,
       false,
       false,
-      true,
       false,
-      false
+      false,
+      true,
+      true
     ]
   },
-  "hash": "fbca987922eb98cc9dfa0fb8e3342e05d3faa02c6057d1b04e07f2713523e347"
+  "hash": "27f7c307441dbdebb9c24e6827e66c10877b4850705dd0534352e38382cc428f"
 }

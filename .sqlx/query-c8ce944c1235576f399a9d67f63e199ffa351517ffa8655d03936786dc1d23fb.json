@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tasks (id, schedule_type, last_run, next_run, retry_count, max_retries, retry_delay, enabled, action, start_date, end_date)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)\n            ON CONFLICT (id) DO UPDATE SET\n                schedule_type = EXCLUDED.schedule_type,\n                last_run = EXCLUDED.last_run,\n                next_run = EXCLUDED.next_run,\n                retry_count = EXCLUDED.retry_count,\n                max_retries = EXCLUDED.max_retries,\n                retry_delay = EXCLUDED.retry_delay,\n                enabled = EXCLUDED.enabled,\n                action = EXCLUDED.action,\n                start_date = EXCLUDED.start_date,\n                end_date = EXCLUDED.end_date\n            RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2",
+        "Timestamptz",
+        "Timestamptz",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Bool",
+        "Jsonb",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c8ce944c1235576f399a9d67f63e199ffa351517ffa8655d03936786dc1d23fb"
+}

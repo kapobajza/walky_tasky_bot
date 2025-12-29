@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::Duration};
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use sqlx::types::{JsonValue, time::OffsetDateTime};
@@ -8,15 +8,18 @@ use crate::{error::SchedulerError, task::action::TaskAction};
 
 #[derive(Clone, Debug)]
 pub enum TaskType {
-    Cron(String),
     Once,
+    Range {
+        start_date: DateTime<Utc>,
+        end_date: DateTime<Utc>,
+    },
 }
 
 impl From<TaskType> for i16 {
     fn from(value: TaskType) -> Self {
         match value {
-            TaskType::Cron(_) => 1,
-            TaskType::Once => 2,
+            TaskType::Once => 1,
+            TaskType::Range { .. } => 2,
         }
     }
 }
@@ -24,7 +27,6 @@ impl From<TaskType> for i16 {
 pub struct TaskDb {
     pub id: Uuid,
     pub schedule_type: i16,
-    pub schedule: Option<String>,
     pub last_run: Option<OffsetDateTime>,
     pub next_run: OffsetDateTime,
     pub retry_count: i32,
@@ -32,6 +34,17 @@ pub struct TaskDb {
     pub retry_delay: i32,
     pub enabled: bool,
     pub action: JsonValue,
+    pub start_date: Option<OffsetDateTime>,
+    pub end_date: Option<OffsetDateTime>,
+}
+
+fn to_offset_datetime(dt: DateTime<Utc>) -> Result<OffsetDateTime, SchedulerError> {
+    OffsetDateTime::from_unix_timestamp(dt.timestamp())
+        .map_err(|e| SchedulerError::DatabaseError(e.to_string()))
+}
+
+fn from_offset_datetime(odt: OffsetDateTime) -> DateTime<Utc> {
+    DateTime::<Utc>::from_timestamp_nanos(odt.unix_timestamp_nanos() as i64)
 }
 
 #[derive(Clone, Debug)]
@@ -45,6 +58,7 @@ pub struct Task {
     pub retry_delay: Duration,
     pub schedule: TaskType,
     pub action: Option<TaskAction>,
+    pub delay_between_runs: Option<chrono::Duration>,
 }
 
 impl Default for Task {
@@ -59,27 +73,26 @@ impl Default for Task {
             retry_delay: Duration::from_millis(1000),
             schedule: TaskType::Once,
             action: None,
+            delay_between_runs: None,
         }
     }
 }
 
 impl Task {
-    pub fn new_with_cron(
-        cron_expression: &str,
+    pub fn new_with_datetime_range(
+        start_date: DateTime<Utc>,
+        end_date: DateTime<Utc>,
         action: TaskAction,
-    ) -> Result<Self, SchedulerError> {
-        let next_run = cron::Schedule::from_str(cron_expression)
-            .map_err(SchedulerError::CronError)?
-            .upcoming(Utc)
-            .next()
-            .ok_or(SchedulerError::NoChronoNext)?;
-
-        Ok(Task {
-            schedule: TaskType::Cron(cron_expression.to_string()),
-            next_run,
+    ) -> Self {
+        Task {
+            schedule: TaskType::Range {
+                start_date,
+                end_date,
+            },
+            next_run: start_date,
             action: Some(action),
             ..Default::default()
-        })
+        }
     }
 
     pub fn new_with_datetime(next_run: DateTime<Utc>, action: TaskAction) -> Self {
@@ -101,21 +114,28 @@ impl Task {
         self
     }
 
-    pub fn calculate_next_run(&mut self) -> Result<(), SchedulerError> {
+    pub fn with_delay_between_runs(mut self, delay: chrono::Duration) -> Self {
+        self.delay_between_runs = Some(delay);
+        self
+    }
+
+    pub fn calculate_next_run(&mut self) {
         match &self.schedule {
-            TaskType::Cron(cron_expression) => {
-                let schedule =
-                    cron::Schedule::from_str(cron_expression).map_err(SchedulerError::CronError)?;
-                let next_run = schedule
-                    .upcoming(Utc)
-                    .next()
-                    .ok_or(SchedulerError::NoChronoNext)?;
-                self.next_run = next_run;
-                Ok(())
+            TaskType::Range {
+                start_date: _,
+                end_date,
+            } => {
+                let next_run =
+                    self.next_run + self.delay_between_runs.unwrap_or(chrono::Duration::days(1));
+
+                if next_run <= *end_date {
+                    self.next_run = next_run;
+                } else {
+                    self.enabled = false;
+                }
             }
             TaskType::Once => {
                 self.enabled = false;
-                Ok(())
             }
         }
     }
@@ -138,18 +158,26 @@ impl Task {
         let retry_delay = self.retry_delay.as_millis() as i32;
         let max_retries = self.max_retries as i32;
         let retry_count = self.retry_count as i32;
-        let next_run = OffsetDateTime::from_unix_timestamp(self.next_run.timestamp())
-            .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
-        let last_run = self
-            .last_run
-            .map(|dt| OffsetDateTime::from_unix_timestamp(dt.timestamp()))
-            .transpose()
-            .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
+        let next_run = to_offset_datetime(self.next_run)?;
+        let last_run = self.last_run.map(to_offset_datetime).transpose()?;
         let action = match &self.action {
             Some(act) => act,
             None => {
                 return Err(SchedulerError::ActionMissing(self.id.to_string()));
             }
+        };
+
+        let (start_date, end_date) = match &self.schedule {
+            TaskType::Range {
+                start_date,
+                end_date,
+            } => {
+                let start_date = to_offset_datetime(*start_date)?;
+                let end_date = to_offset_datetime(*end_date)?;
+
+                (Some(start_date), Some(end_date))
+            }
+            _ => (None, None),
         };
 
         Ok(TaskDb {
@@ -160,19 +188,24 @@ impl Task {
             retry_count,
             max_retries,
             retry_delay,
-            schedule: match &self.schedule {
-                TaskType::Cron(expr) => Some(expr.clone()),
-                TaskType::Once => None,
-            },
             enabled: self.enabled,
             action: serde_json::to_value(action)?,
+            start_date,
+            end_date,
         })
     }
 
     pub fn from_db_task(db_task: TaskDb) -> Result<Self, SchedulerError> {
         let schedule = match db_task.schedule_type {
-            1 => TaskType::Cron(db_task.schedule.unwrap()), // Placeholder, actual cron expression should be stored/retrieved
-            2 => TaskType::Once,
+            1 => TaskType::Once,
+            2 => TaskType::Range {
+                start_date: from_offset_datetime(db_task.start_date.ok_or_else(|| {
+                    SchedulerError::DatabaseError("Missing start_date for Range task".to_string())
+                })?),
+                end_date: from_offset_datetime(db_task.end_date.ok_or_else(|| {
+                    SchedulerError::DatabaseError("Missing end_date for Range task".to_string())
+                })?),
+            },
             _ => {
                 return Err(SchedulerError::DatabaseError(
                     "Invalid schedule type".to_string(),
@@ -182,11 +215,8 @@ impl Task {
         let retry_delay = Duration::from_millis(db_task.retry_delay as u64);
         let max_retries = db_task.max_retries as u32;
         let retry_count = db_task.retry_count as u32;
-        let next_run =
-            DateTime::<Utc>::from_timestamp_nanos(db_task.next_run.unix_timestamp_nanos() as i64);
-        let last_run = db_task
-            .last_run
-            .map(|dt| DateTime::<Utc>::from_timestamp_nanos(dt.unix_timestamp_nanos() as i64));
+        let next_run = from_offset_datetime(db_task.next_run);
+        let last_run = db_task.last_run.map(from_offset_datetime);
         let action: TaskAction = serde_json::from_value(db_task.action)?;
 
         Ok(Task {
@@ -199,6 +229,7 @@ impl Task {
             max_retries,
             retry_delay,
             action: Some(action),
+            delay_between_runs: None,
         })
     }
 }

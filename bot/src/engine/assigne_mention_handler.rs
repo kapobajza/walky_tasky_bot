@@ -46,14 +46,9 @@ pub async fn handle_assigne_mention_callback(
                     }
                 }
                 MessageEntityKind::TextMention { user } => {
-                    let display_name = if let Some(username) = &user.username {
-                        format!("@{}", username)
-                    } else {
-                        user.first_name.clone()
-                    };
                     found_mention = Some(format!(
                         "[{}](tg://user?id={})",
-                        markdown::escape(&display_name),
+                        markdown::escape(&user.first_name),
                         user.id
                     ));
                     break;
@@ -84,12 +79,16 @@ pub async fn handle_assigne_mention_callback(
                     next_run,
                     TaskAction::SendBotMessage {
                         chat_id: msg.chat.id.0,
-                        message: format!("Podsjetnik za zadatak: {}", task_name),
+                        message: format!(
+                            "Brate {}, vrijeme je za obavljanje zadatka '{}'",
+                            &mention,
+                            markdown::escape(&task_name)
+                        ),
                     },
                 ))
                 .await?;
             let confirmation_message = format!(
-                "Zadatak '{}' je dodijeljen korisniku {} za {} u {}\\.",
+                "Zadatak '{}' je dodijeljen bratu {} za {} u {}\\.",
                 markdown::escape(&task_name),
                 mention,
                 markdown::escape(&date),

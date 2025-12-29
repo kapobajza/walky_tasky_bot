@@ -25,12 +25,12 @@ use testcontainers::{ContainerAsync, ImageExt};
 use testcontainers_modules::postgres::Postgres as PostgresImage;
 
 /// Test executor that tracks execution attempts
-struct CountingExecutor {
+struct FailCountingExecutor {
     counter: Arc<tokio::sync::Mutex<u32>>,
     fail_until: u32,
 }
 
-impl CountingExecutor {
+impl FailCountingExecutor {
     fn new(counter: Arc<tokio::sync::Mutex<u32>>, fail_until: u32) -> Self {
         Self {
             counter,
@@ -40,7 +40,7 @@ impl CountingExecutor {
 }
 
 #[async_trait]
-impl ActionExecutor for CountingExecutor {
+impl ActionExecutor for FailCountingExecutor {
     fn supported_actions(&self) -> Vec<ActionType> {
         vec![ActionType::Log]
     }
@@ -172,7 +172,7 @@ async fn test_retry_task_on_failure() {
     let attempt_counter = Arc::new(tokio::sync::Mutex::new(0));
 
     let mut registry = ActionRegistry::new();
-    registry.register(CountingExecutor::new(attempt_counter.clone(), 3));
+    registry.register(FailCountingExecutor::new(attempt_counter.clone(), 3));
 
     let scheduler = TaskScheduler::new(storage.clone(), registry)
         .with_check_interval(time::Duration::from_millis(50));
@@ -236,6 +236,7 @@ async fn test_execute_unfinished_tasks_on_startup() {
     let run_tasks = get_run_tasks(&storage).await;
     assert_eq!(run_tasks, 1);
 }
+
 #[tokio::test]
 async fn test_do_not_execute_disabled_tasks() {
     let (_pool, container) = setup_database().await;
@@ -259,6 +260,7 @@ async fn test_do_not_execute_disabled_tasks() {
                 message: "Disabled task".to_string(),
                 level: "info".to_string(),
             }),
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -272,4 +274,69 @@ async fn test_do_not_execute_disabled_tasks() {
 
     let run_tasks = get_run_tasks(&storage).await;
     assert_eq!(run_tasks, 0);
+}
+
+#[derive(Clone)]
+struct CountingExecutor {
+    counter: Arc<tokio::sync::Mutex<u32>>,
+}
+
+impl CountingExecutor {
+    fn new() -> Self {
+        Self {
+            counter: Arc::new(tokio::sync::Mutex::new(0)),
+        }
+    }
+}
+
+#[async_trait]
+impl ActionExecutor for CountingExecutor {
+    fn supported_actions(&self) -> Vec<ActionType> {
+        vec![ActionType::Log]
+    }
+
+    async fn execute(&self, _task: &Task, _action: &TaskAction) -> Result<(), SchedulerError> {
+        let mut count = self.counter.lock().await;
+        *count += 1;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn test_execute_range_based_task() {
+    let storage = Arc::new(InMemoryStorage::new());
+    let counting_executor = CountingExecutor::new();
+    let mut registry = ActionRegistry::new();
+    registry.register(counting_executor.clone());
+    let scheduler = TaskScheduler::new(storage.clone(), registry)
+        .with_check_interval(time::Duration::from_millis(50));
+    let now = chrono::Utc::now();
+    let start_date = now + chrono::Duration::milliseconds(50);
+    let end_date = now + chrono::Duration::milliseconds(100);
+
+    let action = TaskAction::Log {
+        message: "Range-based task".to_string(),
+        level: "info".to_string(),
+    };
+
+    scheduler
+        .add_task(
+            Task::new_with_datetime_range(start_date, end_date, action)
+                .with_delay_between_runs(chrono::Duration::milliseconds(40)),
+        )
+        .await
+        .unwrap();
+
+    let run_tasks = get_run_tasks(&storage).await;
+    assert_eq!(run_tasks, 0);
+
+    scheduler.start().await.unwrap();
+
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    let run_tasks = get_run_tasks(&storage).await;
+    let count = *counting_executor.counter.lock().await;
+
+    assert_eq!(run_tasks, 1);
+    assert_eq!(count, 2);
 }

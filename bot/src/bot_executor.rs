@@ -9,7 +9,7 @@ use scheduler::{
 };
 use teloxide::{Bot, types::ChatId};
 
-use crate::engine::utils::send_chat_message;
+use crate::engine::utils::send_chat_message_markdown;
 
 pub struct BotExecutor {
     bot: Bot,
@@ -29,7 +29,7 @@ impl ActionExecutor for BotExecutor {
 
     async fn execute(&self, _task: &Task, action: &TaskAction) -> Result<(), SchedulerError> {
         if let TaskAction::SendBotMessage { chat_id, message } = action {
-            send_chat_message(&self.bot, ChatId(*chat_id), message.clone()).await;
+            send_chat_message_markdown(&self.bot, ChatId(*chat_id), message.clone()).await;
         }
 
         Ok(())

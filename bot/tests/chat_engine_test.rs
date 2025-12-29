@@ -291,8 +291,8 @@ async fn test_assigne_mention_task_has_correct_action() {
             message
         );
         assert!(
-            message.contains("Podsjetnik"),
-            "Task message should be a reminder. Got: {}",
+            message.contains("@user"),
+            "Task message should contain mentioned user. Got: {}",
             message
         );
     } else {
@@ -348,8 +348,8 @@ async fn test_assignee_mention_with_tg_link_has_correct_action() {
             message
         );
         assert!(
-            message.contains("Podsjetnik"),
-            "Task message should be a reminder. Got: {}",
+            message.contains("User"),
+            "Task message should contain mentioned user. Got: {}",
             message
         );
     } else {
@@ -400,13 +400,13 @@ async fn test_assignee_mention_with_tg_handles_special_chars() {
 
     if let Some(TaskAction::SendBotMessage { message, .. }) = &task.action {
         assert!(
-            message.contains("Code.Review"),
+            message.contains("Code\\.Review"),
             "Task message should contain task name. Got: {}",
             message
         );
         assert!(
-            message.contains("Podsjetnik"),
-            "Task message should be a reminder. Got: {}",
+            message.contains("John\\_Doe\\*"),
+            "Task message should contain mentioned user. Got: {}",
             message
         );
     } else {

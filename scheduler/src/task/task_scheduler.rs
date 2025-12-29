@@ -65,10 +65,7 @@ impl TaskScheduler {
                     let mut executing_guard = executing_tasks.write().await;
                     executing_guard.remove(&task.id);
 
-                    if let Err(e) = task.calculate_next_run() {
-                        log::error!("Error calculating next run for task {}: {:?}", task.id, e);
-                        return;
-                    }
+                    task.calculate_next_run();
 
                     if let Err(e) = storage.save_task(task).await {
                         log::error!("Error updating task {:?}", e);
@@ -92,12 +89,8 @@ impl TaskScheduler {
                     } else {
                         log::error!("Max retries reached for task {}. Giving up.", task.id);
                         task.last_run = Some(chrono::Utc::now());
-
-                        if let Err(e) = task.calculate_next_run() {
-                            log::error!("Error calculating next run for task {}: {:?}", task.id, e);
-                        } else {
-                            task.reset_retry_count();
-                        }
+                        task.calculate_next_run();
+                        task.reset_retry_count();
 
                         if let Err(e) = storage.save_task(task).await {
                             log::error!("Error updating task {:?}", e);
