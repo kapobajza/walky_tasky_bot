@@ -38,11 +38,33 @@ Set the following environment variables:
 
 ## Running
 
+### Option 1: Using Docker Compose (Recommended)
+
 ```bash
 # Set your Telegram bot token
 export TELOXIDE_TOKEN="your_bot_token"
 
-# Run the bot
+# Optional: Set database credentials (defaults shown)
+export POSTGRES_USER="postgres"
+export POSTGRES_DB="wt_db"
+
+# Build and start the bot with PostgreSQL
+docker compose -f compose.yml -f compose.local.yml up -d
+
+# View logs
+docker compose logs -f app
+
+# Stop the bot
+docker compose down
+```
+
+### Option 2: Local Development
+
+```bash
+# Set your Telegram bot token
+export TELOXIDE_TOKEN="your_bot_token"
+
+# Run the bot (requires PostgreSQL running separately)
 cargo run -p bot
 ```
 
