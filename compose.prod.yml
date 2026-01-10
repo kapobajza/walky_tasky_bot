@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/kapobajza/walky_tasky_bot:${GIT_COMMIT_HASH-prod}
+    image: ghcr.io/kapobajza/walky_tasky_bot:${GIT_COMMIT_HASH-latest}
     build: !reset null
     secrets:
       - walky-tasky-bot-db-password
