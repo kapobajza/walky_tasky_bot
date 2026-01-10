@@ -1,0 +1,19 @@
+name: walky-tasky-bot-local
+
+services:
+  app:
+    build:
+      context: .
+    environment:
+      - TELOXIDE_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - DB_PASSWORD=${POSTGRES_PASSWORD-postgres}
+    platform: linux/amd64
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD-postgres}
+    ports:
+      - "${HOST_DB_PORT-5432}:5432"

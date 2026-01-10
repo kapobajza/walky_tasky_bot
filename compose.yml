@@ -1,0 +1,35 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DB_PORT=5432
+      - DB_USER=${POSTGRES_USER-postgres}
+      - DB_NAME=${POSTGRES_DB-wt_db}
+      - DB_HOST=db
+      - RUST_LOG=${RUST_LOG-info}
+      - RUST_BACKTRACE=${RUST_BACKTRACE-1}
+    restart: unless-stopped
+
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER-postgres}
+      POSTGRES_DB: ${POSTGRES_DB-wt_db}
+    restart: unless-stopped
+    volumes:
+      - wt_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER-postgres} -d ${POSTGRES_DB-wt_db}",
+        ]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 10s
+
+volumes:
+  wt_db_data:

@@ -1,0 +1,30 @@
+services:
+  app:
+    image: ghcr.io/kapobajza/walky_tasky_bot:${GIT_COMMIT_HASH-prod}
+    build: !reset null
+    secrets:
+      - walky-tasky-bot-db-password
+      - walky-tasky-bot-telegram-token
+    environment:
+      - TELOXIDE_TOKEN=!reset null
+      - DB_PASSWORD=!reset null
+    deploy:
+      update_config:
+        order: stop-first
+    depends_on:
+      - db
+
+  db:
+    image: postgres:18-alpine
+    secrets:
+      - walky-tasky-bot-db-password
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/walky-tasky-bot-db-password
+    ports:
+      - "5432"
+
+secrets:
+  walky-tasky-bot-db-password:
+    external: true
+  walky-tasky-bot-telegram-token:
+    external: true
