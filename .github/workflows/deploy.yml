@@ -80,7 +80,7 @@ jobs:
       - name: Docker Stack Deploy
         uses: cssnr/stack-deploy-action@v1
         with:
-          name: github-deploy-context
+          name: walky-tasky-bot-stack
           file: compose.yml compose.prod.yml
           host: ${{ secrets.SSH_HOST }}
           user: github-deploy
