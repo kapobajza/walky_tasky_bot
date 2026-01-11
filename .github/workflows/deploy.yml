@@ -77,72 +77,16 @@ jobs:
           echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           echo "sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
 
-      - name: Set up SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-
-          # Add server host key to known_hosts
-          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
-
-          cat >> ~/.ssh/config << 'EOF'
-          Host wt-bot-deploy
-              HostName ${{ secrets.SSH_HOST }}
-              User github-deploy
-              Port 22
-              IdentityFile ~/.ssh/id_ed25519
-              IdentitiesOnly yes
-          EOF
-          chmod 600 ~/.ssh/config
-
-      - name: Set up Docker Context
-        run: |
-          echo "${{ secrets.DOCKER_CONTEXT }}" | base64 -d | docker context import github-deploy-context -
-          docker context ls
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - name: Docker Stack Deploy
+        uses: cssnr/stack-deploy-action@v1
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Deploy to Docker Swarm
+          name: github-deploy-context
+          file: compose.yml compose.prod.yml
+          host: ${{ secrets.SSH_HOST }}
+          user: github-deploy
+          ssh_key: ${{ secrets.SSH_PRIVATE_KEY }}
         env:
           GIT_COMMIT_HASH: ${{ steps.vars.outputs.sha }}
-        run: |
-          docker context use github-deploy-context
-          docker stack deploy \
-            --compose-file compose.yml \
-            --compose-file compose.prod.yml \
-            --with-registry-auth \
-            walky-tasky-bot-stack
-
-      - name: Verify deployment
-        run: |
-          docker context use github-deploy-context
-          docker stack ps walky-tasky-bot-stack --filter "desired-state=running"
-
-      - name: Generate release notes
-        id: release_notes
-        run: |
-          # Get the previous tag
-          PREV_TAG=$(git describe --abbrev=0 --tags $(git rev-list --tags --skip=1 --max-count=1) 2>/dev/null || echo "")
-
-          # Generate changelog
-          if [ -z "$PREV_TAG" ]; then
-            # First release, get all commits
-            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --reverse)
-          else
-            # Get commits since previous tag
-            CHANGELOG=$(git log $PREV_TAG..HEAD --pretty=format:"- %s (%h)" --reverse)
-          fi
-
-          # Save to output (handle multiline)
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -154,9 +98,6 @@ jobs:
 
             **Docker Image:** `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.sha }}`
             **Commit:** ${{ github.sha }}
-
-            ### Changes
-            ${{ steps.release_notes.outputs.changelog }}
           draft: false
           prerelease: false
         env:
